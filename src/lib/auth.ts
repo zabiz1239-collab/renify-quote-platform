@@ -10,7 +10,6 @@ export const authOptions: NextAuthOptions = {
       authorization: {
         params: {
           scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
-          prompt: "consent",
         },
       },
       clientId: process.env.MICROSOFT_CLIENT_ID!,
@@ -60,6 +59,8 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
   },
+  secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === "development",
 };
 
 async function refreshAccessToken(token: import("next-auth/jwt").JWT) {
