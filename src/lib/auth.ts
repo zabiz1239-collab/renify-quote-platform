@@ -53,6 +53,19 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+  events: {
+    async signIn({ account }) {
+      console.log("[NextAuth] signIn event - provider:", account?.provider, "type:", account?.type);
+    },
+  },
+  logger: {
+    error(code, metadata) {
+      console.error("[NextAuth Error]", code, JSON.stringify(metadata, null, 2));
+    },
+    warn(code) {
+      console.warn("[NextAuth Warn]", code);
+    },
+  },
   pages: {
     signIn: "/login",
   },
@@ -60,7 +73,6 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
 };
 
 async function refreshAccessToken(token: import("next-auth/jwt").JWT) {
