@@ -15,6 +15,10 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.MICROSOFT_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
       idToken: true,
+      checks: ["pkce", "state"],
+      client: {
+        token_endpoint_auth_method: "client_secret_post",
+      },
       profile(profile) {
         return {
           id: profile.sub,
