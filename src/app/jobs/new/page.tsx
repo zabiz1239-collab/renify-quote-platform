@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job, AppSettings } from "@/types";
 import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import Link from "next/link";
-import { ChevronRight, ChevronDown, Search } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, AlertTriangle } from "lucide-react";
 
 const TRADE_CATEGORY_ORDER = [
   { key: "siteworks", label: "Siteworks", range: [15, 100] },
@@ -58,6 +58,17 @@ export default function NewJobPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [touched, setTouched] = useState(false);
+  const [authWarning, setAuthWarning] = useState("");
+
+  useEffect(() => {
+    if (!session?.accessToken) {
+      setAuthWarning("Connect your Microsoft account before creating a job.");
+    } else if (session.error === "RefreshAccessTokenError") {
+      setAuthWarning("Your Microsoft session expired. Please sign out and sign back in.");
+    } else {
+      setAuthWarning("");
+    }
+  }, [session?.accessToken, session?.error]);
 
   const [form, setForm] = useState({
     jobCode: "",
@@ -235,6 +246,18 @@ export default function NewJobPage() {
         </nav>
         <h1 className="text-2xl font-bold">Create New Job</h1>
 
+        {authWarning && (
+          <div className="flex items-start gap-2 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-yellow-800">
+              <p>{authWarning}</p>
+              <Link href="/login" className="underline font-medium mt-1 inline-block">
+                Sign in with Microsoft
+              </Link>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <Card>
             <CardHeader>
@@ -260,7 +283,7 @@ export default function NewJobPage() {
                     <SelectTrigger className={`min-h-[44px] ${touched && !form.region ? "border-red-500" : ""}`}>
                       <SelectValue placeholder="Select region" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {DEFAULT_REGIONS.map((r) => (
                         <SelectItem key={r} value={r}>
                           {r}
@@ -292,7 +315,7 @@ export default function NewJobPage() {
                     <SelectTrigger className={`min-h-[44px] ${touched && !form.buildType ? "border-red-500" : ""}`}>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {BUILD_TYPES.map((t) => (
                         <SelectItem key={t} value={t}>
                           {t}
@@ -308,7 +331,7 @@ export default function NewJobPage() {
                     <SelectTrigger className={`min-h-[44px] ${touched && !form.storeys ? "border-red-500" : ""}`}>
                       <SelectValue placeholder="Select storeys" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {STOREYS.map((s) => (
                         <SelectItem key={s} value={s}>
                           {s}
@@ -498,7 +521,7 @@ export default function NewJobPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.push("/jobs")}
+              onClick={(e) => { e.preventDefault(); router.push("/jobs"); }}
               className="min-h-[44px]"
             >
               Cancel

@@ -162,11 +162,11 @@ export default function DashboardPage() {
       const graphErr = err as { statusCode?: number; message?: string; code?: string };
       const detail = graphErr.statusCode
         ? `Graph API ${graphErr.statusCode}: ${graphErr.code || graphErr.message || "Unknown"}`
-        : err instanceof Error
+        : err instanceof Error && err.message
           ? err.message
-          : "Unknown error";
+          : "";
       console.error("Failed to load dashboard:", { statusCode: graphErr.statusCode, code: graphErr.code, message: graphErr.message, err });
-      setError(`Failed to load dashboard data: ${detail}`);
+      setError(detail ? `Failed to load dashboard data — ${detail}` : "Failed to load dashboard data. Please check your connection.");
     } finally {
       setLoading(false);
     }
