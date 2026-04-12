@@ -7,6 +7,8 @@ export const authOptions: NextAuthOptions = {
       id: "microsoft",
       name: "Microsoft",
       type: "oauth",
+      // Explicit endpoints — do NOT use wellKnown with tenant=common
+      // (templated issuer causes silent ID token validation failures)
       authorization: {
         url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
         params: {
@@ -14,22 +16,9 @@ export const authOptions: NextAuthOptions = {
           response_type: "code",
         },
       },
-      token: {
-        url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-        async request({ client, params, checks, provider }) {
-          // Manual token exchange to ensure we capture all fields
-          const response = await client.oauthCallback(
-            provider.callbackUrl,
-            params,
-            checks,
-            { exchangeBody: { client_secret: process.env.MICROSOFT_CLIENT_SECRET! } }
-          );
-          return { tokens: response };
-        },
-      },
-      userinfo: {
-        url: "https://graph.microsoft.com/oidc/userinfo",
-      },
+      // Let NextAuth handle the code-for-token exchange natively
+      token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      userinfo: "https://graph.microsoft.com/oidc/userinfo",
       clientId: process.env.MICROSOFT_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
       checks: ["state"],
@@ -45,7 +34,7 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account }) {
-      // On initial sign-in, persist the OAuth tokens
+      // On initial sign-in, capture OAuth tokens from the account
       if (account) {
         console.log("[NextAuth] JWT — initial sign-in", {
           hasAccessToken: !!account.access_token,
@@ -70,13 +59,10 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Token expired — attempt refresh
-      console.log("[NextAuth] JWT — token expired, refreshing", {
-        expiredAt: new Date(expiresAt).toISOString(),
-        hasRefreshToken: !!token.refreshToken,
-      });
+      console.log("[NextAuth] JWT — token expired, refreshing");
 
       if (!token.refreshToken) {
-        console.error("[NextAuth] JWT — no refresh token available, cannot refresh");
+        console.error("[NextAuth] JWT — no refresh token, cannot refresh");
         return { ...token, error: "RefreshAccessTokenError" as const };
       }
 
@@ -90,12 +76,6 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.sub;
       }
       return session;
-    },
-  },
-
-  events: {
-    async signIn({ account }) {
-      console.log("[NextAuth] signIn event — provider:", account?.provider);
     },
   },
 
@@ -119,40 +99,29 @@ export const authOptions: NextAuthOptions = {
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
-    console.log("[NextAuth] Refreshing access token...");
-
-    const body = new URLSearchParams({
-      client_id: process.env.MICROSOFT_CLIENT_ID!,
-      client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
-      grant_type: "refresh_token",
-      refresh_token: token.refreshToken as string,
-      scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
-    });
-
     const response = await fetch(
       "https://login.microsoftonline.com/common/oauth2/v2.0/token",
       {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
+        body: new URLSearchParams({
+          client_id: process.env.MICROSOFT_CLIENT_ID!,
+          client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
+          grant_type: "refresh_token",
+          refresh_token: token.refreshToken as string,
+          scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
+        }),
       }
     );
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("[NextAuth] Token refresh failed:", {
-        status: response.status,
-        error: data.error,
-        description: data.error_description,
-      });
-      throw new Error(data.error_description || data.error || "Token refresh failed");
+      console.error("[NextAuth] Refresh failed:", data.error, data.error_description);
+      throw new Error(data.error_description || "Token refresh failed");
     }
 
-    console.log("[NextAuth] Token refreshed successfully", {
-      expiresIn: data.expires_in,
-      hasNewRefreshToken: !!data.refresh_token,
-    });
+    console.log("[NextAuth] Token refreshed, expires_in:", data.expires_in);
 
     return {
       ...token,
@@ -163,9 +132,6 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
     };
   } catch (err) {
     console.error("[NextAuth] refreshAccessToken error:", err);
-    return {
-      ...token,
-      error: "RefreshAccessTokenError" as const,
-    };
+    return { ...token, error: "RefreshAccessTokenError" as const };
   }
 }
