@@ -121,6 +121,7 @@ export default function SuppliersPage() {
       const sup: Supplier = editingId
         ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined }
         : { id: uuidv4(), ...form, abn: form.abn || undefined };
+      console.log("[Supplier Save]", { trades: sup.trades, regions: sup.regions, company: sup.company });
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -426,7 +427,7 @@ export default function SuppliersPage() {
                   <div className="flex gap-4 pt-2">
                     <Button
                       onClick={handleSave}
-                      disabled={saving || !form.company || !form.email}
+                      disabled={saving}
                       className="min-h-[44px] flex-1"
                     >
                       {saving ? "Saving..." : editingId ? "Update" : "Add"}

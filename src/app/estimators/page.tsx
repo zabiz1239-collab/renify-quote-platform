@@ -200,7 +200,7 @@ export default function EstimatorsPage() {
                 <div className="flex gap-4 pt-2">
                   <Button
                     onClick={handleSave}
-                    disabled={saving || !form.name || !form.email}
+                    disabled={saving}
                     className="min-h-[44px] flex-1"
                   >
                     {saving ? "Saving..." : editingId ? "Update" : "Add"}
