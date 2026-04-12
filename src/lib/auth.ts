@@ -16,9 +16,12 @@ export const authOptions: NextAuthOptions = {
           response_type: "code",
         },
       },
-      // Let NextAuth handle the code-for-token exchange natively
-      token: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-      userinfo: "https://graph.microsoft.com/oidc/userinfo",
+      token: {
+        url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      },
+      userinfo: {
+        url: "https://graph.microsoft.com/oidc/userinfo",
+      },
       clientId: process.env.MICROSOFT_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
       checks: ["state"],
