@@ -24,11 +24,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BarChart3, Download } from "lucide-react";
-import { readJsonFile, listFolder } from "@/lib/onedrive";
+import { getJobs, getSettings } from "@/lib/supabase";
 import { exportComparisonPDF } from "@/lib/pdf-export";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { Job } from "@/types";
 
 interface ComparisonRow {
   supplierName: string;
@@ -45,7 +44,7 @@ interface ComparisonRow {
 
 export default function ComparePage() {
   usePageTitle("Price Comparison");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJobCode, setSelectedJobCode] = useState("");
@@ -54,41 +53,20 @@ export default function ComparePage() {
   const [tradeMarkupPercents, setTradeMarkupPercents] = useState<Record<string, number>>({});
 
   const loadData = useCallback(async () => {
-    if (!session?.accessToken) return;
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
+      const [settings, jobsData] = await Promise.all([
+        getSettings(),
+        getJobs(),
+      ]);
       if (settings?.defaultMarkupPercent) setMarkupPercent(settings.defaultMarkupPercent);
-      // Store per-trade markups for later use
       if (settings?.tradeMarkupPercents) setTradeMarkupPercents(settings.tradeMarkupPercents);
-
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const results = await Promise.all(jobPromises);
-      setJobs(results.filter((j): j is Job => j !== null));
+      setJobs(jobsData);
     } catch (error) {
       console.error("Failed to load data:", error);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken]);
+  }, []);
 
   useEffect(() => {
     loadData();

@@ -11,11 +11,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Save, Plus, X, FolderOpen, Folder, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { readJsonFile, writeJsonFile, listFolder, invalidateCache } from "@/lib/onedrive";
+import { getSettings as fetchSettings, saveSettings as saveSettingsToDb, getJobs } from "@/lib/supabase";
 import { FolderPicker } from "@/components/ui/folder-picker";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { TRADES } from "@/data/trades";
-import type { AppSettings, Job } from "@/types";
+import type { AppSettings } from "@/types";
 import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -40,7 +40,7 @@ interface ConflictEntry {
 
 export default function SettingsPage() {
   usePageTitle("Settings");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,23 +49,15 @@ export default function SettingsPage() {
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
   const [showTradeMarkups, setShowTradeMarkups] = useState(false);
 
-  const rootPath = settings.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-
   useEffect(() => {
     loadSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.accessToken]);
+  }, []);
 
   async function loadSettings() {
-    if (!session?.accessToken) return;
     try {
-      const data = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${rootPath}/settings.json`
-      );
-      if (data) {
-        setSettings({ ...DEFAULT_SETTINGS, ...data });
-      }
+      const data = await fetchSettings();
+      setSettings({ ...DEFAULT_SETTINGS, ...data });
       // Load conflicts from all jobs
       loadConflicts();
     } catch {
@@ -76,31 +68,21 @@ export default function SettingsPage() {
   }
 
   async function loadConflicts() {
-    if (!session?.accessToken) return;
     try {
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter((item) => item.folder && !item.name.endsWith(".json"));
+      const jobs = await getJobs();
       const allConflicts: ConflictEntry[] = [];
 
-      for (const folder of jobFolders) {
-        try {
-          const job = await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-          if (job?.conflicts && job.conflicts.length > 0) {
-            for (const c of job.conflicts) {
-              allConflicts.push({
-                jobCode: job.jobCode,
-                timestamp: c.timestamp,
-                overwrittenBy: c.overwrittenBy,
-                previousData: c.previousData,
-                currentData: job,
-              });
-            }
+      for (const job of jobs) {
+        if (job?.conflicts && job.conflicts.length > 0) {
+          for (const c of job.conflicts) {
+            allConflicts.push({
+              jobCode: job.jobCode,
+              timestamp: c.timestamp,
+              overwrittenBy: c.overwrittenBy,
+              previousData: c.previousData,
+              currentData: job,
+            });
           }
-        } catch {
-          // Skip unreadable jobs
         }
       }
 
@@ -127,22 +109,14 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
-    if (!session?.accessToken) return;
     setSaving(true);
     try {
-      await writeJsonFile(session.accessToken, `${rootPath}/settings.json`, settings);
-      invalidateCache("settings.json");
+      await saveSettingsToDb(settings);
       toast.success("Settings saved successfully");
     } catch (err: unknown) {
       console.error("Failed to save settings:", err);
-      const graphErr = err as { statusCode?: number; message?: string };
-      if (graphErr.statusCode === 503) {
-        toast.error("OneDrive is temporarily unavailable — try again in a moment.");
-      } else if (graphErr.statusCode === 401) {
-        toast.error("Your session expired. Please sign out and sign back in.");
-      } else {
-        toast.error(`Failed to save: ${graphErr.message || "Check your OneDrive connection."}`);
-      }
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast.error(`Failed to save settings: ${message}`);
     } finally {
       setSaving(false);
     }

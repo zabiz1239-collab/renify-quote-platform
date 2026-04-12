@@ -14,51 +14,28 @@ import {
 import { Label } from "@/components/ui/label";
 import { Kanban } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { readJsonFile, writeJsonFile, listFolder } from "@/lib/onedrive";
+import { getJobs, saveJob as saveJobToSupabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, Quote, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { Job, Quote } from "@/types";
 
 export default function QuoteBoardPage() {
   usePageTitle("Quote Board");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<string>("all");
   const [filterTrade, setFilterTrade] = useState<string>("all");
 
   const loadJobs = useCallback(async () => {
-    if (!session?.accessToken) return;
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const results = await Promise.all(jobPromises);
-      setJobs(results.filter((j): j is Job => j !== null));
+      const data = await getJobs();
+      setJobs(data);
     } catch (error) {
       console.error("Failed to load jobs:", error);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken]);
+  }, []);
 
   useEffect(() => {
     loadJobs();
@@ -101,8 +78,6 @@ export default function QuoteBoardPage() {
   }
 
   async function handleStatusChange(itemId: string, newStatus: Quote["status"]) {
-    if (!session?.accessToken) return;
-
     // Parse the item ID
     const parts = itemId.split("-");
     const supplierId = parts.slice(2).join("-"); // UUID may contain dashes
@@ -129,19 +104,9 @@ export default function QuoteBoardPage() {
     updatedJobs[jobIndex] = job;
     setJobs(updatedJobs);
 
-    // Persist to OneDrive
+    // Persist to Supabase
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-      const folderName = `${job.jobCode} - ${job.address}`;
-      await writeJsonFile(
-        session.accessToken,
-        `${rootPath}/${folderName}/job-config.json`,
-        job
-      );
+      await saveJobToSupabase(job);
     } catch (error) {
       console.error("Failed to update quote status:", error);
     }

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readJsonFile, writeJsonFile, listFolder } from "@/lib/onedrive";
+import { getSettings, getSuppliers, getEstimators, getTemplates, getJobs, saveJob } from "@/lib/supabase";
 import { sendEmail } from "@/lib/email";
 import { renderTemplate, findTemplate } from "@/lib/templates";
-import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { EmailTemplate } from "@/types";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -34,32 +33,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Access token required" }, { status: 400 });
   }
 
-  const settings = await readJsonFile<AppSettings>(accessToken, `${DEFAULT_ONEDRIVE_ROOT}/settings.json`);
-  const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
+  const settings = await getSettings();
   const followUpDays = settings?.followUpDays || { first: 7, second: 14 };
 
-  const [suppliers, estimators, templates] = await Promise.all([
-    readJsonFile<Supplier[]>(accessToken, `${rootPath}/suppliers.json`),
-    readJsonFile<Estimator[]>(accessToken, `${rootPath}/estimators.json`),
-    readJsonFile<EmailTemplate[]>(accessToken, `${rootPath}/templates.json`),
+  const [suppliers, estimators, templates, jobs] = await Promise.all([
+    getSuppliers(),
+    getEstimators(),
+    getTemplates(),
+    getJobs(),
   ]);
-
-  const items = await listFolder(accessToken, rootPath);
-  const jobFolders = items.filter(
-    (item) => item.folder && !item.name.endsWith(".json")
-  );
 
   let followUpsSent = 0;
   const errors: string[] = [];
 
-  for (const folder of jobFolders) {
-    const job = await readJsonFile<Job>(
-      accessToken,
-      `${rootPath}/${folder.name}/job-config.json`
-    );
-    if (!job || job.status !== "active" && job.status !== "quoting") continue;
+  for (const job of jobs) {
+    if (job.status !== "active" && job.status !== "quoting") continue;
 
-    const estimator = (estimators || []).find((e) => e.id === job.estimatorId) || (estimators || [])[0];
+    const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
     if (!estimator) continue;
 
     let jobUpdated = false;
@@ -82,11 +72,11 @@ export async function POST(request: NextRequest) {
 
         if (!templateType || quote.followUpCount >= 2) continue;
 
-        const supplier = (suppliers || []).find((s) => s.id === quote.supplierId);
+        const supplier = suppliers.find((s) => s.id === quote.supplierId);
         if (!supplier) continue;
 
         const template = findTemplate(
-          templates || [],
+          templates,
           [trade.code],
           templateType as EmailTemplate["type"]
         );
@@ -126,11 +116,7 @@ export async function POST(request: NextRequest) {
 
     if (jobUpdated) {
       job.updatedAt = new Date().toISOString();
-      await writeJsonFile(
-        accessToken,
-        `${rootPath}/${folder.name}/job-config.json`,
-        job
-      );
+      await saveJob(job);
     }
   }
 

@@ -25,10 +25,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, Users } from "lucide-react";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getEstimators as fetchEstimators, saveEstimator as saveEstimatorToDb, deleteEstimator as deleteEstimatorFromDb } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Estimator } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
 const EMPTY_FORM: Omit<Estimator, "id"> = {
@@ -41,7 +40,7 @@ const EMPTY_FORM: Omit<Estimator, "id"> = {
 
 export default function EstimatorsPage() {
   usePageTitle("Estimators");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [estimators, setEstimators] = useState<Estimator[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -50,32 +49,19 @@ export default function EstimatorsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [validationError, setValidationError] = useState("");
 
-  const rootPath = DEFAULT_ONEDRIVE_ROOT;
-
   useEffect(() => {
     loadEstimators();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.accessToken]);
+  }, []);
 
   async function loadEstimators() {
-    if (!session?.accessToken) return;
     try {
-      const data = await readJsonFile<Estimator[]>(
-        session.accessToken,
-        `${rootPath}/estimators.json`
-      );
-      setEstimators(data || []);
+      const data = await fetchEstimators();
+      setEstimators(data);
     } catch {
       setEstimators([]);
     } finally {
       setLoading(false);
     }
-  }
-
-  async function saveEstimators(updated: Estimator[]) {
-    if (!session?.accessToken) return;
-    await writeJsonFile(session.accessToken, `${rootPath}/estimators.json`, updated);
-    setEstimators(updated);
   }
 
   function openCreate() {
@@ -105,16 +91,15 @@ export default function EstimatorsPage() {
     setValidationError("");
     setSaving(true);
     try {
-      let updated: Estimator[];
+      const est: Estimator = editingId
+        ? { id: editingId, ...form }
+        : { id: uuidv4(), ...form };
+      await saveEstimatorToDb(est);
       if (editingId) {
-        updated = estimators.map((e) =>
-          e.id === editingId ? { ...e, ...form } : e
-        );
+        setEstimators((prev) => prev.map((e) => (e.id === editingId ? est : e)));
       } else {
-        const newEstimator: Estimator = { id: uuidv4(), ...form };
-        updated = [...estimators, newEstimator];
+        setEstimators((prev) => [...prev, est]);
       }
-      await saveEstimators(updated);
       setDialogOpen(false);
     } catch (err) {
       console.error("Failed to save estimator:", err);
@@ -125,8 +110,12 @@ export default function EstimatorsPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this estimator?")) return;
-    const updated = estimators.filter((e) => e.id !== id);
-    await saveEstimators(updated);
+    try {
+      await deleteEstimatorFromDb(id);
+      setEstimators((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      console.error("Failed to delete estimator:", err);
+    }
   }
 
   function updateField(field: string, value: string) {

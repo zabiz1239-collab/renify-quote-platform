@@ -14,10 +14,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Users } from "lucide-react";
-import { readJsonFile, listFolder } from "@/lib/onedrive";
+import { getEstimators, getJobs } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, Estimator, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { Estimator } from "@/types";
 
 interface WorkloadEntry {
   estimator: Estimator;
@@ -29,44 +28,17 @@ interface WorkloadEntry {
 
 export default function WorkloadPage() {
   usePageTitle("Workload");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [workload, setWorkload] = useState<WorkloadEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const loadData = useCallback(async () => {
-    if (!session?.accessToken) return;
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-
-      const estimators = (await readJsonFile<Estimator[]>(
-        session.accessToken,
-        `${rootPath}/estimators.json`
-      )) || [];
-
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const jobs = (await Promise.all(jobPromises)).filter(
-        (j): j is Job => j !== null
-      );
+      const [estimators, jobs] = await Promise.all([
+        getEstimators(),
+        getJobs(),
+      ]);
 
       const now = Date.now();
       const entries: WorkloadEntry[] = estimators.map((est) => {
@@ -104,17 +76,13 @@ export default function WorkloadPage() {
 
       setWorkload(entries);
     } catch (err: unknown) {
-      const graphErr = err as { statusCode?: number; message?: string };
       console.error("Failed to load workload:", err);
-      if (graphErr.statusCode === 503) {
-        setError("OneDrive is temporarily unavailable — try again in a moment.");
-      } else {
-        setError("Failed to load workload data. Please check your connection.");
-      }
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to load workload data: ${message}`);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken]);
+  }, []);
 
   useEffect(() => {
     loadData();

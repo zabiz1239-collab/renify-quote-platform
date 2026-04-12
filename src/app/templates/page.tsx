@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, FileText, Eye } from "lucide-react";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getTemplates as fetchTemplates, saveTemplate as saveTemplateToDb, deleteTemplate as deleteTemplateFromDb, saveTemplatesBulk } from "@/lib/supabase";
 import {
   PLACEHOLDERS,
   renderTemplate,
@@ -34,7 +34,6 @@ import {
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { EmailTemplate } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
 const TEMPLATE_TYPES = [
@@ -63,7 +62,7 @@ const EMPTY_FORM = {
 
 export default function TemplatesPage() {
   usePageTitle("Templates");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,27 +72,21 @@ export default function TemplatesPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const rootPath = DEFAULT_ONEDRIVE_ROOT;
   const sampleContext = getSampleContext();
 
   useEffect(() => {
     loadTemplates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.accessToken]);
+  }, []);
 
   async function loadTemplates() {
-    if (!session?.accessToken) return;
     try {
-      const data = await readJsonFile<EmailTemplate[]>(
-        session.accessToken,
-        `${rootPath}/templates.json`
-      );
+      const data = await fetchTemplates();
       if (data && data.length > 0) {
         setTemplates(data);
       } else {
         // Initialize with defaults
         const defaults = getDefaultTemplates();
-        await writeJsonFile(session.accessToken, `${rootPath}/templates.json`, defaults);
+        await saveTemplatesBulk(defaults);
         setTemplates(defaults);
       }
     } catch {
@@ -102,12 +95,6 @@ export default function TemplatesPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function saveTemplates(updated: EmailTemplate[]) {
-    if (!session?.accessToken) return;
-    await writeJsonFile(session.accessToken, `${rootPath}/templates.json`, updated);
-    setTemplates(updated);
   }
 
   function openCreate() {
@@ -143,16 +130,15 @@ export default function TemplatesPage() {
     if (!form.name || !form.subject || !form.body) return;
     setSaving(true);
     try {
-      let updated: EmailTemplate[];
+      const tmpl: EmailTemplate = editingId
+        ? { id: editingId, ...form }
+        : { id: uuidv4(), ...form };
+      await saveTemplateToDb(tmpl);
       if (editingId) {
-        updated = templates.map((t) =>
-          t.id === editingId ? { ...t, ...form } : t
-        );
+        setTemplates((prev) => prev.map((t) => (t.id === editingId ? tmpl : t)));
       } else {
-        const newTemplate: EmailTemplate = { id: uuidv4(), ...form };
-        updated = [...templates, newTemplate];
+        setTemplates((prev) => [...prev, tmpl]);
       }
-      await saveTemplates(updated);
       setDialogOpen(false);
     } catch (err) {
       console.error("Failed to save template:", err);
@@ -168,8 +154,12 @@ export default function TemplatesPage() {
       return;
     }
     setConfirmDeleteId(null);
-    const updated = templates.filter((t) => t.id !== id);
-    await saveTemplates(updated);
+    try {
+      await deleteTemplateFromDb(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error("Failed to delete template:", err);
+    }
   }
 
   function toggleTrade(code: string) {

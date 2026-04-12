@@ -33,11 +33,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, Upload, Truck, Star } from "lucide-react";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Supplier } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
 
@@ -64,7 +63,7 @@ const EMPTY_FORM = {
 
 export default function SuppliersPage() {
   usePageTitle("Suppliers");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -75,32 +74,19 @@ export default function SuppliersPage() {
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const rootPath = DEFAULT_ONEDRIVE_ROOT;
-
   useEffect(() => {
     loadSuppliers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.accessToken]);
+  }, []);
 
   async function loadSuppliers() {
-    if (!session?.accessToken) return;
     try {
-      const data = await readJsonFile<Supplier[]>(
-        session.accessToken,
-        `${rootPath}/suppliers.json`
-      );
-      setSuppliers(data || []);
+      const data = await fetchSuppliers();
+      setSuppliers(data);
     } catch {
       setSuppliers([]);
     } finally {
       setLoading(false);
     }
-  }
-
-  async function saveSuppliers(updated: Supplier[]) {
-    if (!session?.accessToken) return;
-    await writeJsonFile(session.accessToken, `${rootPath}/suppliers.json`, updated);
-    setSuppliers(updated);
   }
 
   function openCreate() {
@@ -130,22 +116,15 @@ export default function SuppliersPage() {
     if (!form.company || !form.email) return;
     setSaving(true);
     try {
-      let updated: Supplier[];
+      const sup: Supplier = editingId
+        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined }
+        : { id: uuidv4(), ...form, abn: form.abn || undefined };
+      await saveSupplierToDb(sup);
       if (editingId) {
-        updated = suppliers.map((s) =>
-          s.id === editingId
-            ? { ...s, ...form, abn: form.abn || undefined }
-            : s
-        );
+        setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
       } else {
-        const newSupplier: Supplier = {
-          id: uuidv4(),
-          ...form,
-          abn: form.abn || undefined,
-        };
-        updated = [...suppliers, newSupplier];
+        setSuppliers((prev) => [...prev, sup]);
       }
-      await saveSuppliers(updated);
       setDialogOpen(false);
     } catch (err) {
       console.error("Failed to save supplier:", err);
@@ -156,8 +135,12 @@ export default function SuppliersPage() {
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this supplier?")) return;
-    const updated = suppliers.filter((s) => s.id !== id);
-    await saveSuppliers(updated);
+    try {
+      await deleteSupplierFromDb(id);
+      setSuppliers((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error("Failed to delete supplier:", err);
+    }
   }
 
   function toggleTrade(code: string) {
@@ -226,7 +209,9 @@ export default function SuppliersPage() {
         }
 
         if (added > 0) {
-          await saveSuppliers(newSuppliers);
+          const newEntries = newSuppliers.slice(suppliers.length);
+          await saveSuppliersBulk(newEntries);
+          setSuppliers(newSuppliers);
         }
         setCsvResult(`Imported ${added} suppliers, skipped ${skipped} (duplicate or invalid).`);
         if (fileInputRef.current) fileInputRef.current.value = "";

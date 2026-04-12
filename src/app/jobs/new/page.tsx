@@ -10,11 +10,11 @@ import { Label } from "@/components/ui/label";
 // Using native <select> instead of shadcn Select for reliable first-click
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TRADES } from "@/data/trades";
-import { writeJsonFile, createJobFolders, readJsonFile, invalidateCache } from "@/lib/onedrive";
+import { createJobFolders } from "@/lib/onedrive";
+import { saveJob as saveJobToSupabase, getSettings } from "@/lib/supabase";
 import { toast } from "sonner";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { Job } from "@/types";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, Search, AlertTriangle } from "lucide-react";
 
@@ -154,25 +154,8 @@ export default function NewJobPage() {
     setError("");
 
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-
-      // Verify OneDrive root folder exists before trying to create the job
-      const { itemExists } = await import("@/lib/onedrive");
-      const rootExists = await itemExists(session.accessToken, rootPath);
-      if (!rootExists) {
-        setError(
-          `OneDrive folder "${rootPath}" not found. Go to Settings to set your OneDrive jobs folder, or create this folder in your OneDrive first.`
-        );
-        setSaving(false);
-        return;
-      }
-
-      // Create OneDrive folder structure
-      await createJobFolders(session.accessToken, rootPath, form.jobCode, form.address);
+      const settings = await getSettings();
+      const rootPath = settings?.oneDriveRootPath;
 
       // Build job object
       const job: Job = {
@@ -203,43 +186,25 @@ export default function NewJobPage() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Save job-config.json to OneDrive — only redirect after this succeeds
-      const folderName = `${form.jobCode} - ${form.address}`;
-      try {
-        await writeJsonFile(
-          session.accessToken,
-          `${rootPath}/${folderName}/job-config.json`,
-          job
-        );
-      } catch (configErr: unknown) {
-        const cErr = configErr as { statusCode?: number; message?: string };
-        console.error("Folder created but job-config.json write failed:", cErr);
-        toast.error(`Folder created but config write failed (${cErr.statusCode || "unknown"}). Try again.`);
-        setError(`Job folder was created but the config file failed to save. Go to Jobs and click "Configure this job" on the folder, or try creating the job again.`);
-        setSaving(false);
-        return; // Stay on the form — don't redirect
+      // Save job to Supabase
+      await saveJobToSupabase(job);
+
+      // Create OneDrive folder structure (for PDF uploads) — best effort
+      if (session?.accessToken && rootPath) {
+        try {
+          await createJobFolders(session.accessToken, rootPath, form.jobCode, form.address);
+        } catch (folderErr) {
+          console.warn("OneDrive folder creation failed (non-blocking):", folderErr);
+        }
       }
 
-      invalidateCache();
       toast.success(`Job ${form.jobCode} created`);
       router.push("/jobs");
     } catch (err: unknown) {
-      const graphErr = err as { statusCode?: number; message?: string; body?: string };
-      console.error("Failed to create job:", { statusCode: graphErr.statusCode, message: graphErr.message, body: graphErr.body, err });
-
-      if (!graphErr.statusCode || graphErr.statusCode === 0) {
-        toast.error("Could not connect to OneDrive.");
-        setError("Could not connect to OneDrive. Please sign in with your Microsoft account first — go to Settings or sign out and sign back in.");
-      } else if (graphErr.statusCode === 401 || graphErr.statusCode === 403) {
-        toast.error("OneDrive access denied.");
-        setError("OneDrive access denied. Please sign out and sign back in to reconnect your Microsoft account.");
-      } else if (graphErr.statusCode === 404) {
-        toast.error("OneDrive folder not found.");
-        setError("OneDrive folder not found. Go to Settings to configure your jobs folder path.");
-      } else {
-        toast.error(`OneDrive error ${graphErr.statusCode}`);
-        setError(`Failed to create job: OneDrive error ${graphErr.statusCode} — ${graphErr.message || "please check your OneDrive connection and try again."}`);
-      }
+      console.error("Failed to create job:", err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast.error("Failed to create job.");
+      setError(`Failed to create job: ${message}`);
     } finally {
       setSaving(false);
     }

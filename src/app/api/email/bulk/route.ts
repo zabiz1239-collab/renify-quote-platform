@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { readJsonFile, writeJsonFile, listFolder } from "@/lib/onedrive";
+import { getSuppliers, getEstimators, getTemplates, getJob, saveJob } from "@/lib/supabase";
 import { renderTemplate, findTemplate, getGroupedTradeCodes } from "@/lib/templates";
-import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+
 
 
 export async function POST(request: NextRequest) {
@@ -31,34 +30,20 @@ export async function POST(request: NextRequest) {
   }
 
   const accessToken = session.accessToken;
-  const settings = await readJsonFile<AppSettings>(accessToken, `${DEFAULT_ONEDRIVE_ROOT}/settings.json`);
-  const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
 
-  // Load all data
-  const [suppliers, estimators, templates] = await Promise.all([
-    readJsonFile<Supplier[]>(accessToken, `${rootPath}/suppliers.json`),
-    readJsonFile<Estimator[]>(accessToken, `${rootPath}/estimators.json`),
-    readJsonFile<EmailTemplate[]>(accessToken, `${rootPath}/templates.json`),
+  // Load all data from Supabase
+  const [suppliers, estimators, templates, job] = await Promise.all([
+    getSuppliers(),
+    getEstimators(),
+    getTemplates(),
+    getJob(jobCode),
   ]);
 
-  // Find the job
-  const items = await listFolder(accessToken, rootPath);
-  const jobFolder = items.find(
-    (item) => item.folder && item.name.startsWith(`${jobCode} `)
-  );
-  if (!jobFolder) {
+  if (!job) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const job = await readJsonFile<Job>(
-    accessToken,
-    `${rootPath}/${jobFolder.name}/job-config.json`
-  );
-  if (!job) {
-    return NextResponse.json({ error: "Job config not found" }, { status: 404 });
-  }
-
-  const estimator = (estimators || []).find((e) => e.id === job.estimatorId) || (estimators || [])[0];
+  const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
   if (!estimator) {
     return NextResponse.json({ error: "No estimator found" }, { status: 400 });
   }
@@ -81,14 +66,14 @@ export async function POST(request: NextRequest) {
   const results: { supplier: string; tradeCodes: string[]; success: boolean; error?: string }[] = [];
 
   for (const [supplierId, tradeCodes] of Array.from(supplierMap.entries())) {
-    const supplier = (suppliers || []).find((s) => s.id === supplierId);
+    const supplier = suppliers.find((s) => s.id === supplierId);
     if (!supplier) {
       results.push({ supplier: supplierId, tradeCodes, success: false, error: "Supplier not found" });
       continue;
     }
 
     // Find best template for this set of trades
-    const template = findTemplate(templates || [], tradeCodes, "request");
+    const template = findTemplate(templates, tradeCodes, "request");
     if (!template) {
       results.push({ supplier: supplier.company, tradeCodes, success: false, error: "No template found" });
       continue;
@@ -141,11 +126,7 @@ export async function POST(request: NextRequest) {
 
   // Save updated job
   job.updatedAt = new Date().toISOString();
-  await writeJsonFile(
-    accessToken,
-    `${rootPath}/${jobFolder.name}/job-config.json`,
-    job
-  );
+  await saveJob(job);
 
   const sent = results.filter((r) => r.success).length;
   const failed = results.filter((r) => !r.success).length;

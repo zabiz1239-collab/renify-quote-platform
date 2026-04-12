@@ -15,9 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Star, Truck } from "lucide-react";
-import { readJsonFile, listFolder } from "@/lib/onedrive";
-import type { Job, Supplier, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import { getSuppliers, getJobs } from "@/lib/supabase";
+import type { Job, Supplier } from "@/types";
 
 interface SupplierStats {
   totalRequests: number;
@@ -103,7 +102,7 @@ function computeStats(supplier: Supplier, jobs: Job[]): SupplierStats {
 }
 
 export default function SupplierProfilePage() {
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const params = useParams();
   const supplierId = params.id as string;
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -111,54 +110,26 @@ export default function SupplierProfilePage() {
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
-    if (!session?.accessToken || !supplierId) return;
+    if (!supplierId) return;
     try {
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
+      const [allSuppliers, jobs] = await Promise.all([
+        getSuppliers(),
+        getJobs(),
+      ]);
 
-      const suppliers = (await readJsonFile<Supplier[]>(
-        session.accessToken,
-        `${rootPath}/suppliers.json`
-      )) || [];
-
-      const sup = suppliers.find((s) => s.id === supplierId);
+      const sup = allSuppliers.find((s) => s.id === supplierId);
       if (!sup) {
         setLoading(false);
         return;
       }
       setSupplier(sup);
-
-      // Load all jobs
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const jobs = (await Promise.all(jobPromises)).filter(
-        (j): j is Job => j !== null
-      );
-
       setStats(computeStats(sup, jobs));
     } catch (error) {
       console.error("Failed to load supplier profile:", error);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, supplierId]);
+  }, [supplierId]);
 
   useEffect(() => {
     loadData();

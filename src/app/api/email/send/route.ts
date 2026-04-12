@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getSuppliers, getEstimators, getTemplates, getJob, saveJob } from "@/lib/supabase";
 import { renderTemplate, findTemplate } from "@/lib/templates";
-import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { EmailTemplate } from "@/types";
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -34,42 +33,17 @@ export async function POST(request: NextRequest) {
   }
 
   const accessToken = session.accessToken;
-  const rootPath = (
-    await readJsonFile<AppSettings>(accessToken, `${DEFAULT_ONEDRIVE_ROOT}/settings.json`)
-  )?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
 
-  // Load data
-  const suppliers = (await readJsonFile<Supplier[]>(
-    accessToken,
-    `${rootPath}/suppliers.json`
-  )) || [];
+  // Load data from Supabase
+  const [suppliers, estimators, templates, job] = await Promise.all([
+    getSuppliers(),
+    getEstimators(),
+    getTemplates(),
+    getJob(jobCode),
+  ]);
 
-  const estimators = (await readJsonFile<Estimator[]>(
-    accessToken,
-    `${rootPath}/estimators.json`
-  )) || [];
-
-  const templates = (await readJsonFile<EmailTemplate[]>(
-    accessToken,
-    `${rootPath}/templates.json`
-  )) || [];
-
-  // Find the job
-  const { listFolder } = await import("@/lib/onedrive");
-  const items = await listFolder(accessToken, rootPath);
-  const jobFolder = items.find(
-    (item) => item.folder && item.name.startsWith(`${jobCode} `)
-  );
-  if (!jobFolder) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 });
-  }
-
-  const job = await readJsonFile<Job>(
-    accessToken,
-    `${rootPath}/${jobFolder.name}/job-config.json`
-  );
   if (!job) {
-    return NextResponse.json({ error: "Job config not found" }, { status: 404 });
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
   const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
@@ -155,11 +129,7 @@ export async function POST(request: NextRequest) {
 
   // Save updated job
   job.updatedAt = new Date().toISOString();
-  await writeJsonFile(
-    accessToken,
-    `${rootPath}/${jobFolder.name}/job-config.json`,
-    job
-  );
+  await saveJob(job);
 
   return NextResponse.json({ results });
 }

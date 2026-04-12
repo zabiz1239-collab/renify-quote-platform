@@ -16,7 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Upload, AlertTriangle, Scan } from "lucide-react";
-import { readJsonFile, writeJsonFile, listFolder, uploadFile } from "@/lib/onedrive";
+import { uploadFile } from "@/lib/onedrive";
+import { getJobs, getSuppliers, getSettings, getEstimators, saveJob as saveJobToSupabase } from "@/lib/supabase";
 import {
   getQuoteFileName,
   getNextVersion,
@@ -24,7 +25,7 @@ import {
   checkDuplicateHash,
   getTradeNameByCode,
 } from "@/lib/quote-utils";
-import type { Job, Supplier, Quote, AppSettings, Estimator } from "@/types";
+import type { Job, Supplier, Quote } from "@/types";
 import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import { notifyQuoteReceived, notifyMilestone, isJobFullyQuoted } from "@/lib/notifications";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -50,42 +51,20 @@ export default function QuoteIntakePage() {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrDone, setOcrDone] = useState(false);
 
-  const rootPath = DEFAULT_ONEDRIVE_ROOT;
-
   const loadData = useCallback(async () => {
-    if (!session?.accessToken) return;
     try {
-      const [suppliersData, settingsData] = await Promise.all([
-        readJsonFile<Supplier[]>(session.accessToken, `${rootPath}/suppliers.json`),
-        readJsonFile<AppSettings>(session.accessToken, `${rootPath}/settings.json`),
+      const [jobsData, suppliersData] = await Promise.all([
+        getJobs(),
+        getSuppliers(),
       ]);
-      setSuppliers(suppliersData || []);
-
-      const rp = settingsData?.oneDriveRootPath || rootPath;
-      const items = await listFolder(session.accessToken, rp);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rp}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const results = await Promise.all(jobPromises);
-      setJobs(results.filter((j): j is Job => j !== null));
+      setJobs(jobsData);
+      setSuppliers(suppliersData);
     } catch (err) {
       console.error("Failed to load data:", err);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -150,7 +129,7 @@ export default function QuoteIntakePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!session?.accessToken || !selectedJob || !selectedTradeCode || !selectedSupplierId) {
+    if (!selectedJob || !selectedTradeCode || !selectedSupplierId) {
       setError("Please fill in all required fields.");
       return;
     }
@@ -175,10 +154,12 @@ export default function QuoteIntakePage() {
       let quotePDF: string | undefined;
 
       // Upload PDF if provided
-      if (pdfFile) {
+      if (pdfFile && session?.accessToken) {
         fileHash = await computeFileHash(pdfFile);
         quotePDF = getQuoteFileName(tradeName, supplier.company, version);
 
+        const settings = await getSettings();
+        const rootPath = settings.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
         const folderName = `${selectedJob.jobCode} - ${selectedJob.address}`;
         const fileBuffer = await pdfFile.arrayBuffer();
         await uploadFile(
@@ -219,43 +200,34 @@ export default function QuoteIntakePage() {
       }
       updatedJob.updatedAt = new Date().toISOString();
 
-      // Save to OneDrive
-      const folderName = `${selectedJob.jobCode} - ${selectedJob.address}`;
-      await writeJsonFile(
-        session.accessToken,
-        `${rootPath}/${folderName}/job-config.json`,
-        updatedJob
-      );
+      // Save to Supabase
+      await saveJobToSupabase(updatedJob);
 
       // Send notifications (best-effort, don't block on failure)
-      try {
-        const estimators = (await readJsonFile<Estimator[]>(
-          session.accessToken,
-          `${rootPath}/estimators.json`
-        )) || [];
-        const estimator = estimators.find((e) => e.id === updatedJob.estimatorId) || estimators[0];
-        if (estimator) {
-          await notifyQuoteReceived(
-            session.accessToken,
-            estimator,
-            updatedJob.jobCode,
-            tradeName,
-            supplier.company,
-            priceExGST ? parseFloat(priceExGST) : undefined
-          );
-        }
-        // Milestone check
-        if (isJobFullyQuoted(updatedJob)) {
-          const settings = await readJsonFile<AppSettings>(
-            session.accessToken,
-            `${rootPath}/settings.json`
-          );
-          if (settings?.adminEmail) {
-            await notifyMilestone(session.accessToken, settings.adminEmail, updatedJob);
+      if (session?.accessToken) {
+        try {
+          const allEstimators = await getEstimators();
+          const estimator = allEstimators.find((e) => e.id === updatedJob.estimatorId) || allEstimators[0];
+          if (estimator) {
+            await notifyQuoteReceived(
+              session.accessToken,
+              estimator,
+              updatedJob.jobCode,
+              tradeName,
+              supplier.company,
+              priceExGST ? parseFloat(priceExGST) : undefined
+            );
           }
+          // Milestone check
+          if (isJobFullyQuoted(updatedJob)) {
+            const settings = await getSettings();
+            if (settings?.adminEmail) {
+              await notifyMilestone(session.accessToken, settings.adminEmail, updatedJob);
+            }
+          }
+        } catch {
+          // Notifications are best-effort
         }
-      } catch {
-        // Notifications are best-effort
       }
 
       router.push("/quotes");

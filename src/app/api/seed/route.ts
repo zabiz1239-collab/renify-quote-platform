@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { writeJsonFile, itemExists, createFolder } from "@/lib/onedrive";
+import {
+  saveSettings,
+  saveEstimator,
+  saveSuppliersBulk,
+  saveTemplatesBulk,
+  saveJob,
+} from "@/lib/supabase";
+import { createJobFolders } from "@/lib/onedrive";
 import { SAMPLE_ESTIMATORS, SAMPLE_SUPPLIERS, SAMPLE_JOBS } from "@/data/sample-data";
 import { SAMPLE_TEMPLATES } from "@/data/sample-templates";
 import type { AppSettings } from "@/types";
@@ -14,24 +21,19 @@ export async function POST(_request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const accessToken = session.accessToken;
   const rootPath = DEFAULT_ONEDRIVE_ROOT;
 
   try {
-    // Create root folder if it doesn't exist
-    const rootExists = await itemExists(accessToken, rootPath);
-    if (!rootExists) {
-      await createFolder(accessToken, "", rootPath);
+    // Save estimators
+    for (const est of SAMPLE_ESTIMATORS) {
+      await saveEstimator(est);
     }
 
-    // Save estimators
-    await writeJsonFile(accessToken, `${rootPath}/estimators.json`, SAMPLE_ESTIMATORS);
-
     // Save suppliers
-    await writeJsonFile(accessToken, `${rootPath}/suppliers.json`, SAMPLE_SUPPLIERS);
+    await saveSuppliersBulk(SAMPLE_SUPPLIERS);
 
     // Save templates
-    await writeJsonFile(accessToken, `${rootPath}/templates.json`, SAMPLE_TEMPLATES);
+    await saveTemplatesBulk(SAMPLE_TEMPLATES);
 
     // Save settings
     const settings: AppSettings = {
@@ -42,26 +44,16 @@ export async function POST(_request: NextRequest) {
       defaultMarkupPercent: 15,
       adminEmail: "",
     };
-    await writeJsonFile(accessToken, `${rootPath}/settings.json`, settings);
+    await saveSettings(settings);
 
-    // Create job folders and save job configs
+    // Save jobs and create OneDrive folders (best effort)
     for (const job of SAMPLE_JOBS) {
-      const folderName = `${job.jobCode} - ${job.address}`;
+      await saveJob(job);
       try {
-        await createFolder(accessToken, rootPath, folderName);
+        await createJobFolders(session.accessToken, rootPath, job.jobCode, job.address);
       } catch {
-        // Folder may already exist
+        // OneDrive folder creation is best-effort
       }
-      try {
-        await createFolder(accessToken, `${rootPath}/${folderName}`, "Quotes");
-      } catch {
-        // Quotes folder may already exist
-      }
-      await writeJsonFile(
-        accessToken,
-        `${rootPath}/${folderName}/job-config.json`,
-        job
-      );
     }
 
     return NextResponse.json({

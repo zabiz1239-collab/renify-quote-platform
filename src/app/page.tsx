@@ -16,13 +16,12 @@ import {
   ArrowRight,
   FolderOpen,
 } from "lucide-react";
-import { readJsonFile, listFolder, itemExists } from "@/lib/onedrive";
+import { getJobs, getSettings } from "@/lib/supabase";
 import { getExpiringQuotes } from "@/lib/notifications";
 import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { ErrorMessage } from "@/components/ui/error-boundary";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import type { Job } from "@/types";
 
 function getTrafficLight(job: Job): { color: string; label: string; bg: string } {
   const totalTrades = job.trades?.length || 0;
@@ -105,78 +104,34 @@ function getJobCostSummary(job: Job): { totalQuoted: number; budget: number | nu
 
 export default function DashboardPage() {
   usePageTitle("Dashboard");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
 
   const loadJobs = useCallback(async () => {
-    if (!session?.accessToken) {
-      setLoading(false);
-      return;
-    }
-    if (session.error === "RefreshAccessTokenError") {
-      setError("Your Microsoft session expired. Please sign out and sign back in.");
-      setLoading(false);
-      return;
-    }
     setError(null);
     setNeedsSetup(false);
     try {
-      // Try to find settings.json — check default path first
-      const settings = await readJsonFile<AppSettings>(
-        session.accessToken,
-        `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-      );
-      const rootPath = settings?.oneDriveRootPath || DEFAULT_ONEDRIVE_ROOT;
-
-      // Check if the root folder actually exists
-      const rootExists = await itemExists(session.accessToken, rootPath);
-      if (!rootExists) {
-        // Folder doesn't exist — user needs to set up
+      const [jobsData, settings] = await Promise.all([
+        getJobs(),
+        getSettings(),
+      ]);
+      if (!settings.oneDriveRootPath) {
         setNeedsSetup(true);
         setLoading(false);
         return;
       }
-
-      const items = await listFolder(session.accessToken, rootPath);
-      const jobFolders = items.filter(
-        (item) => item.folder && !item.name.endsWith(".json")
-      );
-
-      const jobPromises = jobFolders.map(async (folder) => {
-        try {
-          return await readJsonFile<Job>(
-            session.accessToken!,
-            `${rootPath}/${folder.name}/job-config.json`
-          );
-        } catch {
-          return null;
-        }
-      });
-
-      const results = await Promise.all(jobPromises);
-      setJobs(results.filter((j): j is Job => j !== null));
+      setJobs(jobsData);
     } catch (err: unknown) {
-      const graphErr = err as { statusCode?: number; message?: string; code?: string };
-      console.error("Failed to load dashboard:", { statusCode: graphErr.statusCode, code: graphErr.code, message: graphErr.message, err });
-      if (graphErr.statusCode === 503) {
-        setError("OneDrive is temporarily unavailable — try again in a moment.");
-      } else if (graphErr.statusCode === 401) {
-        setError("Your session expired. Please sign out and sign back in.");
-      } else {
-        const detail = graphErr.statusCode
-          ? `Graph API ${graphErr.statusCode}: ${graphErr.code || graphErr.message || "Unknown"}`
-          : err instanceof Error && err.message
-            ? err.message
-            : "";
-        setError(detail ? `Failed to load dashboard data — ${detail}` : "Failed to load dashboard data. Please check your connection.");
-      }
+      console.error("Failed to load dashboard:", err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to load dashboard data — ${message}`);
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken]);
+  }, []);
 
   useEffect(() => {
     loadJobs();
@@ -186,7 +141,7 @@ export default function DashboardPage() {
   const pendingQuotes = getTotalPendingQuotes(jobs);
   const receivedThisWeek = getWeeklyReceivedCount(jobs);
   const overdueAlerts = getOverdueAlerts(jobs);
-  const expiringQuotes = jobs.flatMap((job) =>
+  const expiringQuotes = jobs.flatMap((job: Job) =>
     getExpiringQuotes(job, [30, 60, 90]).map((eq) => ({ ...eq, jobCode: job.jobCode }))
   ).slice(0, 10);
 

@@ -8,10 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { CheckCircle, Loader2, AlertTriangle, FolderOpen, Folder } from "lucide-react";
 import { FolderPicker } from "@/components/ui/folder-picker";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getSettings as fetchSettings, saveSettings as saveSettingsToDb } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { AppSettings } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
   oneDriveRootPath: "",
@@ -24,7 +23,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 export default function SetupPage() {
   usePageTitle("Setup");
-  const { data: session } = useSession();
+  useSession(); // auth status check
   const router = useRouter();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedPath, setSelectedPath] = useState("");
@@ -37,16 +36,8 @@ export default function SetupPage() {
   // Check if already configured
   useEffect(() => {
     async function checkSettings() {
-      if (!session?.accessToken) {
-        setLoadingSettings(false);
-        return;
-      }
       try {
-        // Try reading settings from the default location first
-        const settings = await readJsonFile<AppSettings>(
-          session.accessToken,
-          `${DEFAULT_ONEDRIVE_ROOT}/settings.json`
-        );
+        const settings = await fetchSettings();
         if (settings?.oneDriveRootPath) {
           setExistingPath(settings.oneDriveRootPath);
           setSelectedPath(settings.oneDriveRootPath);
@@ -58,7 +49,7 @@ export default function SetupPage() {
       }
     }
     checkSettings();
-  }, [session?.accessToken]);
+  }, []);
 
   function handleFolderSelect(path: string) {
     setSelectedPath(path);
@@ -67,7 +58,7 @@ export default function SetupPage() {
   }
 
   async function handleSave() {
-    if (!session?.accessToken || !selectedPath) return;
+    if (!selectedPath) return;
     setSaving(true);
     setError("");
     try {
@@ -75,22 +66,13 @@ export default function SetupPage() {
         ...DEFAULT_SETTINGS,
         oneDriveRootPath: selectedPath,
       };
-      // Save settings.json inside the selected folder
-      await writeJsonFile(
-        session.accessToken,
-        `${selectedPath}/settings.json`,
-        settings
-      );
+      await saveSettingsToDb(settings);
       setSaved(true);
       // Redirect to dashboard after 1.5 seconds
       setTimeout(() => router.push("/"), 1500);
     } catch (err: unknown) {
-      const graphErr = err as { statusCode?: number; message?: string };
-      if (!graphErr.statusCode || graphErr.statusCode === 0) {
-        setError("Could not connect to OneDrive. Please check your Microsoft account is connected.");
-      } else {
-        setError(`Failed to save settings: OneDrive error ${graphErr.statusCode}`);
-      }
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to save settings: ${message}`);
     } finally {
       setSaving(false);
     }
