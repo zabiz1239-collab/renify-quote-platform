@@ -20,7 +20,7 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <Button
-            onClick={() => signIn("microsoft", { callbackUrl: "/" })}
+            onClick={() => signIn("azure-ad", { callbackUrl: "/" })}
             className="w-full h-12 text-base"
           >
             Sign in with Microsoft

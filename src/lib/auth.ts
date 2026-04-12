@@ -1,50 +1,29 @@
 import { type NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
+import AzureAD from "next-auth/providers/azure-ad";
 
 export const authOptions: NextAuthOptions = {
   providers: [
-    {
-      id: "microsoft",
-      name: "Microsoft",
-      type: "oauth",
-      // Explicit endpoints — do NOT use wellKnown with tenant=common
-      // (templated issuer causes silent ID token validation failures)
-      authorization: {
-        url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-        params: {
-          scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
-          response_type: "code",
-        },
-      },
-      token: {
-        url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-      },
-      userinfo: {
-        url: "https://graph.microsoft.com/oidc/userinfo",
-      },
+    AzureAD({
       clientId: process.env.MICROSOFT_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-      checks: ["state"],
-      profile(profile) {
-        return {
-          id: profile.sub,
-          name: profile.name || profile.preferred_username,
-          email: profile.email || profile.preferred_username,
-          image: null,
-        };
+      tenantId: "common",
+      authorization: {
+        params: {
+          scope: "openid profile email offline_access User.Read Files.ReadWrite.All Mail.Send",
+        },
       },
-    },
+    }),
   ],
   callbacks: {
     async jwt({ token, account }) {
-      // On initial sign-in, capture OAuth tokens from the account
       if (account) {
-        console.log("[NextAuth] JWT — initial sign-in", {
+        console.log("[NextAuth] JWT — sign-in", {
+          provider: account.provider,
           hasAccessToken: !!account.access_token,
           hasRefreshToken: !!account.refresh_token,
           expiresAt: account.expires_at,
         });
-
         return {
           ...token,
           accessToken: account.access_token as string,
@@ -55,17 +34,12 @@ export const authOptions: NextAuthOptions = {
         };
       }
 
-      // Token still valid — return as-is
       const expiresAt = token.accessTokenExpires as number;
       if (Date.now() < expiresAt) {
         return token;
       }
 
-      // Token expired — attempt refresh
-      console.log("[NextAuth] JWT — token expired, refreshing");
-
       if (!token.refreshToken) {
-        console.error("[NextAuth] JWT — no refresh token, cannot refresh");
         return { ...token, error: "RefreshAccessTokenError" as const };
       }
 
@@ -112,7 +86,7 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
           client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
           grant_type: "refresh_token",
           refresh_token: token.refreshToken as string,
-          scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
+          scope: "openid profile email offline_access User.Read Files.ReadWrite.All Mail.Send",
         }),
       }
     );
@@ -123,8 +97,6 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
       console.error("[NextAuth] Refresh failed:", data.error, data.error_description);
       throw new Error(data.error_description || "Token refresh failed");
     }
-
-    console.log("[NextAuth] Token refreshed, expires_in:", data.expires_in);
 
     return {
       ...token,
