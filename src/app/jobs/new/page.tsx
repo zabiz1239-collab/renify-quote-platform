@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 // Using native <select> instead of shadcn Select for reliable first-click
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TRADES } from "@/data/trades";
-import { writeJsonFile, createJobFolders, readJsonFile } from "@/lib/onedrive";
+import { writeJsonFile, createJobFolders, readJsonFile, invalidateCache } from "@/lib/onedrive";
+import { toast } from "sonner";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job, AppSettings } from "@/types";
 import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
@@ -202,27 +203,41 @@ export default function NewJobPage() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Save job-config.json to OneDrive
+      // Save job-config.json to OneDrive — only redirect after this succeeds
       const folderName = `${form.jobCode} - ${form.address}`;
-      await writeJsonFile(
-        session.accessToken,
-        `${rootPath}/${folderName}/job-config.json`,
-        job
-      );
+      try {
+        await writeJsonFile(
+          session.accessToken,
+          `${rootPath}/${folderName}/job-config.json`,
+          job
+        );
+      } catch (configErr: unknown) {
+        const cErr = configErr as { statusCode?: number; message?: string };
+        console.error("Folder created but job-config.json write failed:", cErr);
+        toast.error(`Folder created but config write failed (${cErr.statusCode || "unknown"}). Try again.`);
+        setError(`Job folder was created but the config file failed to save. Go to Jobs and click "Configure this job" on the folder, or try creating the job again.`);
+        setSaving(false);
+        return; // Stay on the form — don't redirect
+      }
 
+      invalidateCache();
+      toast.success(`Job ${form.jobCode} created`);
       router.push("/jobs");
     } catch (err: unknown) {
       const graphErr = err as { statusCode?: number; message?: string; body?: string };
       console.error("Failed to create job:", { statusCode: graphErr.statusCode, message: graphErr.message, body: graphErr.body, err });
 
       if (!graphErr.statusCode || graphErr.statusCode === 0) {
-        // statusCode 0 = network failure / no valid auth token
+        toast.error("Could not connect to OneDrive.");
         setError("Could not connect to OneDrive. Please sign in with your Microsoft account first — go to Settings or sign out and sign back in.");
       } else if (graphErr.statusCode === 401 || graphErr.statusCode === 403) {
+        toast.error("OneDrive access denied.");
         setError("OneDrive access denied. Please sign out and sign back in to reconnect your Microsoft account.");
       } else if (graphErr.statusCode === 404) {
+        toast.error("OneDrive folder not found.");
         setError("OneDrive folder not found. Go to Settings to configure your jobs folder path.");
       } else {
+        toast.error(`OneDrive error ${graphErr.statusCode}`);
         setError(`Failed to create job: OneDrive error ${graphErr.statusCode} — ${graphErr.message || "please check your OneDrive connection and try again."}`);
       }
     } finally {

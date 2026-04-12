@@ -1,5 +1,27 @@
 import { Client } from "@microsoft/microsoft-graph-client";
 
+// ── In-memory cache for JSON file reads (60s TTL) ──────
+const jsonCache = new Map<string, { data: unknown; expiresAt: number }>();
+const CACHE_TTL_MS = 60_000;
+
+function getCached<T>(key: string): T | undefined {
+  const entry = jsonCache.get(key);
+  if (entry && Date.now() < entry.expiresAt) return entry.data as T;
+  if (entry) jsonCache.delete(key);
+  return undefined;
+}
+
+function setCache(key: string, data: unknown): void {
+  jsonCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+export function invalidateCache(keyPattern?: string): void {
+  if (!keyPattern) { jsonCache.clear(); return; }
+  Array.from(jsonCache.keys()).forEach((key) => {
+    if (key.includes(keyPattern)) jsonCache.delete(key);
+  });
+}
+
 export function getGraphClient(accessToken: string): Client {
   return Client.init({
     authProvider: (done) => {
@@ -31,6 +53,7 @@ async function withRetry<T>(
         delayMs = parseInt(graphError.headers["retry-after"]) * 1000 || delayMs;
       }
 
+      console.warn(`[OneDrive] Retry ${attempt + 1}/${maxRetries} after ${status} — waiting ${delayMs}ms`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -118,9 +141,9 @@ export async function uploadFile(
   const client = getGraphClient(accessToken);
   const filePath = `${folderPath}/${fileName}`;
   const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, "/");
-  return client
-    .api(`/me/drive/root:/${encodedPath}:/content`)
-    .put(content);
+  return withRetry(() =>
+    client.api(`/me/drive/root:/${encodedPath}:/content`).put(content)
+  );
 }
 
 // Download a file's content by path
@@ -135,11 +158,21 @@ export async function downloadFile(
   );
 }
 
-// Read a JSON file from OneDrive and parse it
+// Read a JSON file from OneDrive and parse it (with in-memory cache)
 export async function readJsonFile<T>(
   accessToken: string,
-  filePath: string
+  filePath: string,
+  skipCache = false
 ): Promise<T | null> {
+  // Check cache first (for suppliers.json, estimators.json, settings.json, templates.json)
+  if (!skipCache) {
+    const cached = getCached<T>(filePath);
+    if (cached !== undefined) {
+      console.log(`[OneDrive] Cache hit: ${filePath}`);
+      return cached;
+    }
+  }
+
   try {
     const client = getGraphClient(accessToken);
     const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, "/");
@@ -147,12 +180,18 @@ export async function readJsonFile<T>(
       client.api(`/me/drive/root:/${encodedPath}:/content`).get()
     );
 
+    let parsed: T;
     if (typeof response === "string") {
-      return JSON.parse(response) as T;
+      parsed = JSON.parse(response) as T;
+    } else {
+      // If response is ArrayBuffer, convert to string
+      const text = new TextDecoder().decode(response);
+      parsed = JSON.parse(text) as T;
     }
-    // If response is ArrayBuffer, convert to string
-    const text = new TextDecoder().decode(response);
-    return JSON.parse(text) as T;
+
+    // Cache the result
+    setCache(filePath, parsed);
+    return parsed;
   } catch (error: unknown) {
     const graphError = error as { statusCode?: number; body?: string; message?: string; code?: string };
     if (graphError.statusCode === 404 || graphError.statusCode === 503) {
@@ -180,9 +219,12 @@ export async function writeJsonFile(
   const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, "/");
   const content = JSON.stringify(data, null, 2);
   try {
-    return await withRetry(() =>
+    const result = await withRetry(() =>
       client.api(`/me/drive/root:/${encodedPath}:/content`).put(content)
     );
+    // Invalidate cache for this file after successful write
+    invalidateCache(filePath);
+    return result;
   } catch (error: unknown) {
     const graphError = error as { statusCode?: number; body?: string; message?: string };
     console.error(`[OneDrive] writeJsonFile failed:`, {

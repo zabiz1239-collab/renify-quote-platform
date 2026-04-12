@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SessionProvider from "@/components/providers/SessionProvider";
 import ServiceWorkerRegistrar from "@/components/providers/ServiceWorkerRegistrar";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: {
@@ -41,6 +42,7 @@ export default function RootLayout({
         <SessionProvider>
           {children}
         </SessionProvider>
+        <Toaster position="top-right" richColors closeButton duration={4000} visibleToasts={3} />
         <ServiceWorkerRegistrar />
       </body>
     </html>

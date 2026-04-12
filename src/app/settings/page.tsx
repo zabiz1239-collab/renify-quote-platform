@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Save, Plus, X, FolderOpen, Folder, AlertTriangle, Loader2 } from "lucide-react";
-import { readJsonFile, writeJsonFile, listFolder } from "@/lib/onedrive";
+import { toast } from "sonner";
+import { readJsonFile, writeJsonFile, listFolder, invalidateCache } from "@/lib/onedrive";
 import { FolderPicker } from "@/components/ui/folder-picker";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { TRADES } from "@/data/trades";
@@ -43,8 +44,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState("");
   const [newRegion, setNewRegion] = useState("");
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
@@ -130,21 +129,19 @@ export default function SettingsPage() {
   async function handleSave() {
     if (!session?.accessToken) return;
     setSaving(true);
-    setSaved(false);
-    setSaveError("");
     try {
       await writeJsonFile(session.accessToken, `${rootPath}/settings.json`, settings);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 5000);
+      invalidateCache("settings.json");
+      toast.success("Settings saved successfully");
     } catch (err: unknown) {
       console.error("Failed to save settings:", err);
       const graphErr = err as { statusCode?: number; message?: string };
       if (graphErr.statusCode === 503) {
-        setSaveError("OneDrive is temporarily unavailable — try again in a moment.");
+        toast.error("OneDrive is temporarily unavailable — try again in a moment.");
       } else if (graphErr.statusCode === 401) {
-        setSaveError("Your session expired. Please sign out and sign back in.");
+        toast.error("Your session expired. Please sign out and sign back in.");
       } else {
-        setSaveError(`Failed to save settings: ${graphErr.message || "Please check your OneDrive connection."}`);
+        toast.error(`Failed to save: ${graphErr.message || "Check your OneDrive connection."}`);
       }
     } finally {
       setSaving(false);
@@ -187,20 +184,9 @@ export default function SettingsPage() {
             className="min-h-[44px]"
           >
             {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Settings"}
+            {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
-
-        {saved && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-            Settings saved successfully.
-          </div>
-        )}
-        {saveError && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
-            {saveError}
-          </div>
-        )}
 
         <Card>
           <CardHeader>
@@ -506,7 +492,7 @@ export default function SettingsPage() {
             className="min-h-[44px]"
           >
             {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Settings"}
+            {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
       </div>
