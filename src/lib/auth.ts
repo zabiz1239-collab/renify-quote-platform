@@ -6,24 +6,32 @@ export const authOptions: NextAuthOptions = {
       id: "microsoft",
       name: "Microsoft",
       type: "oauth",
-      wellKnown: "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+      // Do NOT use wellKnown with tenant=common — it returns a templated
+      // issuer ({tenantid}) that won't match the real ID token issuer,
+      // causing silent OAuthCallback failures.
       authorization: {
+        url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
         params: {
           scope: "openid profile email offline_access Files.ReadWrite.All Mail.Send User.Read",
+          response_type: "code",
         },
+      },
+      token: {
+        url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      },
+      userinfo: {
+        url: "https://graph.microsoft.com/oidc/userinfo",
       },
       clientId: process.env.MICROSOFT_CLIENT_ID!,
       clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-      idToken: true,
-      checks: ["pkce", "state"],
-      client: {
-        token_endpoint_auth_method: "client_secret_post",
-      },
+      // Use state-only checks — no nonce (issuer mismatch with common tenant)
+      // and no PKCE (not needed for confidential clients with a client secret)
+      checks: ["state"],
       profile(profile) {
         return {
           id: profile.sub,
-          name: profile.name,
-          email: profile.email,
+          name: profile.name || profile.preferred_username,
+          email: profile.email || profile.preferred_username,
           image: null,
         };
       },
@@ -33,6 +41,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, account }) {
       // On initial sign-in, store the tokens
       if (account) {
+        console.log("[NextAuth] JWT callback — initial sign-in, storing tokens");
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.accessTokenExpires = account.expires_at
@@ -46,6 +55,7 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Token expired — refresh it
+      console.log("[NextAuth] JWT callback — token expired, refreshing");
       return refreshAccessToken(token);
     },
     async session({ session, token }) {
@@ -59,7 +69,7 @@ export const authOptions: NextAuthOptions = {
   },
   events: {
     async signIn({ account }) {
-      console.log("[NextAuth] signIn event - provider:", account?.provider, "type:", account?.type);
+      console.log("[NextAuth] signIn event — provider:", account?.provider);
     },
   },
   logger: {
@@ -99,6 +109,7 @@ async function refreshAccessToken(token: import("next-auth/jwt").JWT) {
     const data = await response.json();
 
     if (!response.ok) {
+      console.error("[NextAuth] Token refresh failed:", data.error, data.error_description);
       throw new Error(data.error_description || "Failed to refresh token");
     }
 
