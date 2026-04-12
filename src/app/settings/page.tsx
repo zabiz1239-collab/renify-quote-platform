@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Save, Plus, X, FolderOpen, Folder, AlertTriangle } from "lucide-react";
+import { Save, Plus, X, FolderOpen, Folder, AlertTriangle, Loader2 } from "lucide-react";
 import { readJsonFile, writeJsonFile, listFolder } from "@/lib/onedrive";
 import { FolderPicker } from "@/components/ui/folder-picker";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -136,9 +136,16 @@ export default function SettingsPage() {
       await writeJsonFile(session.accessToken, `${rootPath}/settings.json`, settings);
       setSaved(true);
       setTimeout(() => setSaved(false), 5000);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Failed to save settings:", err);
-      setSaveError("Failed to save settings. Please check your OneDrive connection.");
+      const graphErr = err as { statusCode?: number; message?: string };
+      if (graphErr.statusCode === 503) {
+        setSaveError("OneDrive is temporarily unavailable — try again in a moment.");
+      } else if (graphErr.statusCode === 401) {
+        setSaveError("Your session expired. Please sign out and sign back in.");
+      } else {
+        setSaveError(`Failed to save settings: ${graphErr.message || "Please check your OneDrive connection."}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -179,7 +186,7 @@ export default function SettingsPage() {
             disabled={saving}
             className="min-h-[44px]"
           >
-            <Save className="w-4 h-4 mr-2" />
+            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             {saving ? "Saving..." : saved ? "Saved!" : "Save Settings"}
           </Button>
         </div>
@@ -498,7 +505,7 @@ export default function SettingsPage() {
             disabled={saving}
             className="min-h-[44px]"
           >
-            <Save className="w-4 h-4 mr-2" />
+            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             {saving ? "Saving..." : saved ? "Saved!" : "Save Settings"}
           </Button>
         </div>

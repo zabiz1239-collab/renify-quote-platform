@@ -32,6 +32,7 @@ export default function WorkloadPage() {
   const { data: session } = useSession();
   const [workload, setWorkload] = useState<WorkloadEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const loadData = useCallback(async () => {
     if (!session?.accessToken) return;
@@ -102,8 +103,14 @@ export default function WorkloadPage() {
       });
 
       setWorkload(entries);
-    } catch (error) {
-      console.error("Failed to load workload:", error);
+    } catch (err: unknown) {
+      const graphErr = err as { statusCode?: number; message?: string };
+      console.error("Failed to load workload:", err);
+      if (graphErr.statusCode === 503) {
+        setError("OneDrive is temporarily unavailable — try again in a moment.");
+      } else {
+        setError("Failed to load workload data. Please check your connection.");
+      }
     } finally {
       setLoading(false);
     }
@@ -120,6 +127,12 @@ export default function WorkloadPage() {
 
         {loading ? (
           <p className="text-muted-foreground">Loading workload data...</p>
+        ) : error ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <p className="text-sm text-destructive">{error}</p>
+            </CardContent>
+          </Card>
         ) : workload.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">

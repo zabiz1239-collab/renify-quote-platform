@@ -523,11 +523,14 @@ export default function SuppliersPage() {
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
                         <div className="flex flex-wrap gap-1">
-                          {sup.trades.slice(0, 3).map((code) => (
-                            <Badge key={code} variant="secondary" className="text-xs">
-                              {code}
-                            </Badge>
-                          ))}
+                          {sup.trades.slice(0, 3).map((code) => {
+                            const trade = TRADES.find((t) => t.code === code);
+                            return (
+                              <Badge key={code} variant="secondary" className="text-xs" title={code}>
+                                {trade?.name || code}
+                              </Badge>
+                            );
+                          })}
                           {sup.trades.length > 3 && (
                             <Badge variant="secondary" className="text-xs">
                               +{sup.trades.length - 3}

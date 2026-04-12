@@ -7,13 +7,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+// Using native <select> instead of shadcn Select for reliable first-click
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TRADES } from "@/data/trades";
 import { writeJsonFile, createJobFolders, readJsonFile } from "@/lib/onedrive";
@@ -279,18 +273,17 @@ export default function NewJobPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="region">Region *</Label>
-                  <Select value={form.region} onValueChange={(v) => updateField("region", v)}>
-                    <SelectTrigger className={`min-h-[44px] ${touched && !form.region ? "border-red-500" : ""}`}>
-                      <SelectValue placeholder="Select region" />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      {DEFAULT_REGIONS.map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {r}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <select
+                    id="region"
+                    value={form.region}
+                    onChange={(e) => updateField("region", e.target.value)}
+                    className={`flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px] ${touched && !form.region ? "border-red-500" : ""}`}
+                  >
+                    <option value="">Select region</option>
+                    {DEFAULT_REGIONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
                   {touched && !form.region && <p className="text-xs text-red-500">Region is required</p>}
                 </div>
               </div>
@@ -311,34 +304,32 @@ export default function NewJobPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="buildType">Build Type *</Label>
-                  <Select value={form.buildType} onValueChange={(v) => updateField("buildType", v)}>
-                    <SelectTrigger className={`min-h-[44px] ${touched && !form.buildType ? "border-red-500" : ""}`}>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      {BUILD_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <select
+                    id="buildType"
+                    value={form.buildType}
+                    onChange={(e) => updateField("buildType", e.target.value)}
+                    className={`flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px] ${touched && !form.buildType ? "border-red-500" : ""}`}
+                  >
+                    <option value="">Select type</option>
+                    {BUILD_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                   {touched && !form.buildType && <p className="text-xs text-red-500">Build Type is required</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="storeys">Storeys *</Label>
-                  <Select value={form.storeys} onValueChange={(v) => updateField("storeys", v)}>
-                    <SelectTrigger className={`min-h-[44px] ${touched && !form.storeys ? "border-red-500" : ""}`}>
-                      <SelectValue placeholder="Select storeys" />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      {STOREYS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <select
+                    id="storeys"
+                    value={form.storeys}
+                    onChange={(e) => updateField("storeys", e.target.value)}
+                    className={`flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px] ${touched && !form.storeys ? "border-red-500" : ""}`}
+                  >
+                    <option value="">Select storeys</option>
+                    {STOREYS.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
                   {touched && !form.storeys && <p className="text-xs text-red-500">Storeys is required</p>}
                 </div>
               </div>

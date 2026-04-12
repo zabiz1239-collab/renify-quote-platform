@@ -160,13 +160,19 @@ export default function DashboardPage() {
       setJobs(results.filter((j): j is Job => j !== null));
     } catch (err: unknown) {
       const graphErr = err as { statusCode?: number; message?: string; code?: string };
-      const detail = graphErr.statusCode
-        ? `Graph API ${graphErr.statusCode}: ${graphErr.code || graphErr.message || "Unknown"}`
-        : err instanceof Error && err.message
-          ? err.message
-          : "";
       console.error("Failed to load dashboard:", { statusCode: graphErr.statusCode, code: graphErr.code, message: graphErr.message, err });
-      setError(detail ? `Failed to load dashboard data — ${detail}` : "Failed to load dashboard data. Please check your connection.");
+      if (graphErr.statusCode === 503) {
+        setError("OneDrive is temporarily unavailable — try again in a moment.");
+      } else if (graphErr.statusCode === 401) {
+        setError("Your session expired. Please sign out and sign back in.");
+      } else {
+        const detail = graphErr.statusCode
+          ? `Graph API ${graphErr.statusCode}: ${graphErr.code || graphErr.message || "Unknown"}`
+          : err instanceof Error && err.message
+            ? err.message
+            : "";
+        setError(detail ? `Failed to load dashboard data — ${detail}` : "Failed to load dashboard data. Please check your connection.");
+      }
     } finally {
       setLoading(false);
     }
