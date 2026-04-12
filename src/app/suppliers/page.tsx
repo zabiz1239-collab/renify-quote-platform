@@ -15,7 +15,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -72,6 +71,7 @@ export default function SuppliersPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState("");
   const [csvResult, setCsvResult] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -92,6 +92,7 @@ export default function SuppliersPage() {
   function openCreate() {
     setForm(EMPTY_FORM);
     setEditingId(null);
+    setTouched(false);
     setDialogOpen(true);
   }
 
@@ -113,6 +114,7 @@ export default function SuppliersPage() {
   }
 
   async function handleSave() {
+    setTouched(true);
     if (!form.company || !form.email) return;
     setSaving(true);
     try {
@@ -250,13 +252,11 @@ export default function SuppliersPage() {
                 </span>
               </Button>
             </label>
+            <Button onClick={openCreate} className="min-h-[44px]">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Supplier
+            </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={openCreate} className="min-h-[44px]">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Supplier
-                </Button>
-              </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
@@ -275,8 +275,9 @@ export default function SuppliersPage() {
                         onChange={(e) =>
                           setForm((p) => ({ ...p, company: e.target.value }))
                         }
-                        className="min-h-[44px]"
+                        className={`min-h-[44px] ${touched && !form.company ? "border-red-500" : ""}`}
                       />
+                      {touched && !form.company && <p className="text-xs text-red-500">This field is required.</p>}
                     </div>
                     <div className="space-y-2">
                       <Label>Contact Person</Label>
@@ -298,8 +299,9 @@ export default function SuppliersPage() {
                         onChange={(e) =>
                           setForm((p) => ({ ...p, email: e.target.value }))
                         }
-                        className="min-h-[44px]"
+                        className={`min-h-[44px] ${touched && !form.email ? "border-red-500" : ""}`}
                       />
+                      {touched && !form.email && <p className="text-xs text-red-500">This field is required.</p>}
                     </div>
                     <div className="space-y-2">
                       <Label>Phone</Label>

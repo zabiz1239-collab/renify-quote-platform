@@ -12,18 +12,9 @@ import { getSettings as fetchSettings, saveSettings as saveSettingsToDb } from "
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { AppSettings } from "@/types";
 
-const DEFAULT_SETTINGS: AppSettings = {
-  oneDriveRootPath: "",
-  regions: ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"],
-  followUpDays: { first: 7, second: 14 },
-  quoteExpiryWarningDays: [30, 60, 90],
-  defaultMarkupPercent: 15,
-  adminEmail: "",
-};
-
 export default function SetupPage() {
   usePageTitle("Setup");
-  useSession(); // auth status check
+  useSession();
   const router = useRouter();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedPath, setSelectedPath] = useState("");
@@ -32,18 +23,19 @@ export default function SetupPage() {
   const [error, setError] = useState("");
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [existingPath, setExistingPath] = useState("");
+  const [settings, setSettings] = useState<AppSettings | null>(null);
 
-  // Check if already configured
   useEffect(() => {
     async function checkSettings() {
       try {
-        const settings = await fetchSettings();
-        if (settings?.oneDriveRootPath) {
-          setExistingPath(settings.oneDriveRootPath);
-          setSelectedPath(settings.oneDriveRootPath);
+        const s = await fetchSettings();
+        setSettings(s);
+        if (s?.oneDriveRootPath) {
+          setExistingPath(s.oneDriveRootPath);
+          setSelectedPath(s.oneDriveRootPath);
         }
       } catch {
-        // No settings yet — that's fine
+        // No settings yet
       } finally {
         setLoadingSettings(false);
       }
@@ -62,13 +54,18 @@ export default function SetupPage() {
     setSaving(true);
     setError("");
     try {
-      const settings: AppSettings = {
-        ...DEFAULT_SETTINGS,
+      await saveSettingsToDb({
+        ...(settings || {
+          oneDriveRootPath: "",
+          regions: ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"],
+          followUpDays: { first: 7, second: 14 },
+          quoteExpiryWarningDays: [30, 60, 90],
+          defaultMarkupPercent: 15,
+          adminEmail: "",
+        }),
         oneDriveRootPath: selectedPath,
-      };
-      await saveSettingsToDb(settings);
+      });
       setSaved(true);
-      // Redirect to dashboard after 1.5 seconds
       setTimeout(() => router.push("/"), 1500);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -81,29 +78,27 @@ export default function SetupPage() {
   return (
     <AuthLayout>
       <div className="max-w-xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold">Set Up OneDrive</h1>
+        <h1 className="text-2xl font-bold">Setup Guide</h1>
 
-        {/* Main card — folder picker */}
         <Card className="border-[#2D5E3A]/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FolderOpen className="w-5 h-5 text-[#2D5E3A]" />
-              Select Your Jobs Folder
+              OneDrive Folder for Quote PDFs
             </CardTitle>
             <CardDescription>
-              Browse your OneDrive and select the folder where your job folders live.
-              Renify will read and create job data inside this folder.
+              Select the OneDrive folder where job folders and quote PDFs will be stored.
+              All other data (suppliers, estimators, templates, settings) is stored securely in the cloud database.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loadingSettings ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Checking OneDrive connection...
+                Loading settings...
               </div>
             ) : (
               <>
-                {/* Current selection */}
                 {selectedPath ? (
                   <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
                     <Folder className="w-5 h-5 text-[#2D5E3A] shrink-0" />
@@ -133,7 +128,6 @@ export default function SetupPage() {
                   </Button>
                 )}
 
-                {/* Error */}
                 {error && (
                   <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                     <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -141,17 +135,15 @@ export default function SetupPage() {
                   </div>
                 )}
 
-                {/* Success */}
                 {saved && (
                   <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
                     <CheckCircle className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
                     <p className="text-sm text-green-800">
-                      OneDrive folder configured! Redirecting to Dashboard...
+                      Settings saved! Redirecting to Dashboard...
                     </p>
                   </div>
                 )}
 
-                {/* Save button */}
                 {selectedPath && !saved && (
                   <Button
                     onClick={handleSave}
@@ -167,31 +159,29 @@ export default function SetupPage() {
           </CardContent>
         </Card>
 
-        {/* Help text */}
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-3 text-sm text-muted-foreground">
               <p>
-                <strong className="text-foreground">What folder should I pick?</strong><br />
-                Pick the folder that contains (or will contain) your job subfolders.
-                For example, if your jobs are at <code className="bg-muted px-1 rounded">OneDrive/Renify Business/Jobs</code>,
-                select that <code className="bg-muted px-1 rounded">Jobs</code> folder.
+                <strong className="text-foreground">Where is my data stored?</strong><br />
+                All your jobs, suppliers, estimators, templates, and settings are stored in
+                a secure cloud database (Supabase). OneDrive is used only for storing
+                quote PDF files in job folders.
               </p>
               <p>
-                <strong className="text-foreground">What happens next?</strong><br />
-                Renify will look for job folders inside this folder. Each job gets its own subfolder
-                with a <code className="bg-muted px-1 rounded">job-config.json</code> file and a <code className="bg-muted px-1 rounded">Quotes</code> folder.
+                <strong className="text-foreground">What folder should I pick?</strong><br />
+                Pick the folder that contains (or will contain) your job subfolders.
+                Each job gets its own subfolder with a <code className="bg-muted px-1 rounded">Quotes</code> folder for PDFs.
               </p>
               <p>
                 <strong className="text-foreground">Can I change this later?</strong><br />
-                Yes — go to Settings any time to pick a different folder.
+                Yes — go to Settings any time to update.
               </p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Folder picker dialog */}
       <FolderPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}

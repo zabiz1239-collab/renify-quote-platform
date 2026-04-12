@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Save, Plus, X, FolderOpen, Folder, AlertTriangle, Loader2 } from "lucide-react";
+import { Save, Plus, X, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { getSettings as fetchSettings, saveSettings as saveSettingsToDb, getJobs } from "@/lib/supabase";
 import { FolderPicker } from "@/components/ui/folder-picker";
@@ -164,34 +164,6 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>OneDrive</CardTitle>
-            <CardDescription>
-              The folder in your OneDrive where Renify reads and creates job data.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-              <Folder className="w-5 h-5 text-[#2D5E3A] shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {settings.oneDriveRootPath || "Not configured"}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFolderPickerOpen(true)}
-                className="min-h-[36px] shrink-0"
-              >
-                <FolderOpen className="w-4 h-4 mr-2" />
-                Change
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>Regions</CardTitle>
             <CardDescription>
               Manage the regions available in dropdown menus throughout the app.
@@ -225,8 +197,9 @@ export default function SettingsPage() {
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addRegion())}
               />
               <Button
+                type="button"
                 variant="outline"
-                onClick={addRegion}
+                onClick={(e) => { e.preventDefault(); addRegion(); }}
                 className="min-h-[44px]"
               >
                 <Plus className="w-4 h-4" />

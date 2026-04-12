@@ -14,7 +14,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -48,6 +47,7 @@ export default function EstimatorsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [validationError, setValidationError] = useState("");
+  const [touched, setTouched] = useState(false);
 
   useEffect(() => {
     loadEstimators();
@@ -68,6 +68,7 @@ export default function EstimatorsPage() {
     setForm(EMPTY_FORM);
     setEditingId(null);
     setValidationError("");
+    setTouched(false);
     setDialogOpen(true);
   }
 
@@ -84,8 +85,9 @@ export default function EstimatorsPage() {
   }
 
   async function handleSave() {
+    setTouched(true);
     if (!form.name || !form.email) {
-      setValidationError("Name and Email are required.");
+      setValidationError("Please fill in all required fields.");
       return;
     }
     setValidationError("");
@@ -127,13 +129,11 @@ export default function EstimatorsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Estimators</h1>
+          <Button onClick={openCreate} className="min-h-[44px]">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Estimator
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={openCreate} className="min-h-[44px]">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Estimator
-              </Button>
-            </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>
@@ -153,8 +153,9 @@ export default function EstimatorsPage() {
                     id="name"
                     value={form.name}
                     onChange={(e) => updateField("name", e.target.value)}
-                    className="min-h-[44px]"
+                    className={`min-h-[44px] ${touched && !form.name ? "border-red-500" : ""}`}
                   />
+                  {touched && !form.name && <p className="text-xs text-red-500">This field is required.</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email *</Label>
@@ -163,8 +164,9 @@ export default function EstimatorsPage() {
                     type="email"
                     value={form.email}
                     onChange={(e) => updateField("email", e.target.value)}
-                    className="min-h-[44px]"
+                    className={`min-h-[44px] ${touched && !form.email ? "border-red-500" : ""}`}
                   />
+                  {touched && !form.email && <p className="text-xs text-red-500">This field is required.</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone</Label>

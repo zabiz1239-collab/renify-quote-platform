@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { readJsonFile, writeJsonFile } from "@/lib/onedrive";
+import { getSuppliers, saveSuppliersBulk } from "@/lib/supabase";
 import type { Supplier } from "@/types";
-import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
 const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
@@ -40,7 +39,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Search Google Places for the trade in the region
     const query = `${trade} ${region} Victoria Australia`;
     const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${GOOGLE_PLACES_API_KEY}`;
 
@@ -56,7 +54,6 @@ export async function POST(request: NextRequest) {
 
     const places: PlaceResult[] = [];
 
-    // Get details for each result (limited to first 10)
     for (const result of (searchData.results || []).slice(0, 10)) {
       const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${result.place_id}&fields=name,formatted_address,formatted_phone_number,website&key=${GOOGLE_PLACES_API_KEY}`;
       const detailRes = await fetch(detailUrl);
@@ -73,18 +70,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Load existing suppliers for deduplication
-    const rootPath = DEFAULT_ONEDRIVE_ROOT;
-    const existingSuppliers = (await readJsonFile<Supplier[]>(
-      session.accessToken,
-      `${rootPath}/suppliers.json`
-    )) || [];
+    // Load existing suppliers from Supabase for deduplication
+    const existingSuppliers = await getSuppliers();
 
     const newSuppliers: Supplier[] = [];
     let skipped = 0;
 
     for (const place of places) {
-      // Deduplicate by company name (case-insensitive)
       const nameNorm = place.name.toLowerCase().trim();
       if (existingSuppliers.some((s) => s.company.toLowerCase().trim() === nameNorm)) {
         skipped++;
@@ -109,10 +101,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save new suppliers if any
     if (newSuppliers.length > 0) {
-      const updated = [...existingSuppliers, ...newSuppliers];
-      await writeJsonFile(session.accessToken, `${rootPath}/suppliers.json`, updated);
+      await saveSuppliersBulk(newSuppliers);
     }
 
     return NextResponse.json({

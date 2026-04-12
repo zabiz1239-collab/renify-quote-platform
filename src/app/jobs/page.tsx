@@ -84,7 +84,8 @@ export default function JobsPage() {
                   ).length || 0;
 
                 return (
-                  <Card key={job.jobCode} className="hover:shadow-md transition-shadow">
+                  <Link key={job.jobCode} href={`/jobs/${encodeURIComponent(job.jobCode)}`}>
+                  <Card className="hover:shadow-md transition-shadow cursor-pointer">
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between">
                         <CardTitle className="text-lg">{job.jobCode}</CardTitle>
@@ -123,6 +124,7 @@ export default function JobsPage() {
                       </div>
                     </CardContent>
                   </Card>
+                  </Link>
                 );
               })}
             </div>
