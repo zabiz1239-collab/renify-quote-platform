@@ -13,6 +13,10 @@ import {
   Menu,
   X,
   Mail,
+  FileInput,
+  BarChart3,
+  FileText,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +24,11 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
   { href: "/suppliers", label: "Suppliers", icon: Truck },
+  { href: "/quotes/intake", label: "Receive Quote", icon: FileInput },
   { href: "/quotes", label: "Send Quotes", icon: Mail },
+  { href: "/compare", label: "Compare", icon: BarChart3 },
+  { href: "/templates", label: "Templates", icon: FileText },
+  { href: "/estimators", label: "Estimators", icon: Users },
 ];
 
 export default function MobileNav() {
