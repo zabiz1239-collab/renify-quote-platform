@@ -8,7 +8,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle } from "lucide-react";
+import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2 } from "lucide-react";
 import { getJob, getEstimators, saveJob } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -42,6 +42,7 @@ export default function JobDetailPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [estimator, setEstimator] = useState<Estimator | null>(null);
   const [loading, setLoading] = useState(true);
+  const [uploadingZone, setUploadingZone] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -108,6 +109,37 @@ export default function JobDetailPage() {
         </div>
       </AuthLayout>
     );
+  }
+
+  const UPLOAD_ZONES = [
+    { category: "architectural", label: "Plans", accept: ".pdf" },
+    { category: "engineering", label: "Engineering", accept: ".pdf" },
+    { category: "scope", label: "Inclusions", accept: ".pdf" },
+    { category: "colour_selection", label: "Colour Selection", accept: ".pdf" },
+    { category: "other", label: "Other", accept: ".pdf" },
+  ] as const;
+
+  async function handleFileUpload(file: File, category: string) {
+    if (!job) return;
+    setUploadingZone(category);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("jobCode", job.jobCode);
+      formData.append("address", job.address);
+      formData.append("category", category);
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      toast.success(`Uploaded ${file.name}`);
+      await loadData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      toast.error(msg);
+    } finally {
+      setUploadingZone(null);
+    }
   }
 
   const totalTrades = job.trades?.length || 0;
@@ -192,6 +224,61 @@ export default function JobDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Upload Zones */}
+        <Card>
+          <CardHeader><CardTitle>Upload Documents</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {UPLOAD_ZONES.map((zone) => {
+                const isUploading = uploadingZone === zone.category;
+                const existingDocs = (job.documents || []).filter(
+                  (d) => d.category === zone.category
+                );
+                return (
+                  <label
+                    key={zone.category}
+                    className={`relative flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors min-h-[120px] ${
+                      isUploading
+                        ? "border-[#2D5E3A] bg-[#2D5E3A]/5"
+                        : "border-muted-foreground/25 hover:border-[#2D5E3A] hover:bg-muted/50"
+                    }`}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const file = e.dataTransfer.files[0];
+                      if (file) handleFileUpload(file, zone.category);
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept={zone.accept}
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, zone.category);
+                        e.target.value = "";
+                      }}
+                      disabled={isUploading}
+                    />
+                    {isUploading ? (
+                      <Loader2 className="w-8 h-8 text-[#2D5E3A] animate-spin" />
+                    ) : (
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                    )}
+                    <span className="text-sm font-medium">{zone.label}</span>
+                    {existingDocs.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {existingDocs.length} file{existingDocs.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Trade Checklist */}
         <Card>
