@@ -1,4 +1,4 @@
-import { Client } from "@microsoft/microsoft-graph-client";
+import { Client, ResponseType } from "@microsoft/microsoft-graph-client";
 
 // ── In-memory cache for JSON file reads (60s TTL) ──────
 const jsonCache = new Map<string, { data: unknown; expiresAt: number }>();
@@ -153,9 +153,20 @@ export async function downloadFile(
 ): Promise<ArrayBuffer> {
   const client = getGraphClient(accessToken);
   const encodedPath = encodeURIComponent(filePath).replace(/%2F/g, "/");
-  return withRetry(() =>
-    client.api(`/me/drive/root:/${encodedPath}:/content`).get()
-  );
+  return withRetry(async () => {
+    const response = await client
+      .api(`/me/drive/root:/${encodedPath}:/content`)
+      .responseType(ResponseType.ARRAYBUFFER)
+      .get();
+    // Graph SDK may return ArrayBuffer directly or a Response object depending on env
+    if (response instanceof ArrayBuffer) return response;
+    if (response && typeof response.arrayBuffer === "function") {
+      return await response.arrayBuffer();
+    }
+    // Fallback: if it's a Buffer/Uint8Array, convert
+    if (response && response.buffer) return response.buffer;
+    return response;
+  });
 }
 
 // Read a JSON file from OneDrive and parse it (with in-memory cache)
