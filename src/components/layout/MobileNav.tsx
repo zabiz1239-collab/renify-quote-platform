@@ -7,31 +7,20 @@ import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Briefcase,
-  Users,
   Truck,
   Settings,
   LogOut,
   Menu,
   X,
-  Kanban,
-  FileText,
-  BarChart3,
-  Activity,
-  Rocket,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/quotes", label: "Quote Board", icon: Kanban },
-  { href: "/compare", label: "Compare", icon: BarChart3 },
-  { href: "/templates", label: "Templates", icon: FileText },
-  { href: "/estimators", label: "Estimators", icon: Users },
-  { href: "/estimators/workload", label: "Workload", icon: Activity },
   { href: "/suppliers", label: "Suppliers", icon: Truck },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/setup", label: "Setup Guide", icon: Rocket },
+  { href: "/quotes", label: "Send Quotes", icon: Mail },
 ];
 
 export default function MobileNav() {
@@ -48,13 +37,22 @@ export default function MobileNav() {
           </div>
           <span className="text-lg font-semibold">Renify</span>
         </Link>
-        <button
-          onClick={() => setOpen(!open)}
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"
-          aria-label="Toggle menu"
-        >
-          {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <Link
+            href="/settings"
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-400 hover:text-white"
+            aria-label="Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </Link>
+          <button
+            onClick={() => setOpen(!open)}
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="Toggle menu"
+          >
+            {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Slide-down menu */}

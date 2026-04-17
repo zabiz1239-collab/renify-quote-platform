@@ -6,29 +6,17 @@ import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   Briefcase,
-  Users,
   Truck,
-  Settings,
   LogOut,
-  Kanban,
-  FileText,
-  BarChart3,
-  Activity,
-  Rocket,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/quotes", label: "Quote Board", icon: Kanban },
-  { href: "/compare", label: "Compare", icon: BarChart3 },
-  { href: "/templates", label: "Templates", icon: FileText },
-  { href: "/estimators", label: "Estimators", icon: Users },
-  { href: "/estimators/workload", label: "Workload", icon: Activity },
   { href: "/suppliers", label: "Suppliers", icon: Truck },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/setup", label: "Setup Guide", icon: Rocket },
+  { href: "/quotes", label: "Send Quotes", icon: Mail },
 ];
 
 export default function Sidebar() {

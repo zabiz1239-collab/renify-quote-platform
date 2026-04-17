@@ -3,6 +3,8 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 import Sidebar from "./Sidebar";
 import MobileNav from "./MobileNav";
 import OfflineIndicator from "./OfflineIndicator";
@@ -43,6 +45,15 @@ export default function AuthLayout({
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         <MobileNav />
+        <div className="hidden md:flex items-center justify-end px-6 py-3 border-b">
+          <Link
+            href="/settings"
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="Settings"
+          >
+            <Settings className="w-5 h-5" />
+          </Link>
+        </div>
         <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-white focus:text-[#2D5E3A] focus:font-medium">
           Skip to content
         </a>
