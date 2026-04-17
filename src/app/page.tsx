@@ -15,13 +15,24 @@ import {
   Plus,
   ArrowRight,
   FolderOpen,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { getJobs, getSettings } from "@/lib/supabase";
 import { getExpiringQuotes } from "@/lib/notifications";
 import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { ErrorMessage } from "@/components/ui/error-boundary";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { toast } from "sonner";
 import type { Job } from "@/types";
+
+interface FollowUpPreview {
+  jobCode: string;
+  tradeName: string;
+  supplierName: string;
+  daysAgo: number;
+  followUpType: string;
+}
 
 function getTrafficLight(job: Job): { color: string; label: string; bg: string } {
   const totalTrades = job.trades?.length || 0;
@@ -109,6 +120,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [followUps, setFollowUps] = useState<FollowUpPreview[]>([]);
+  const [followUpDays, setFollowUpDays] = useState({ first: 7, second: 14 });
+  const [sendingFollowUps, setSendingFollowUps] = useState(false);
 
   const loadJobs = useCallback(async () => {
     setError(null);
@@ -124,6 +138,17 @@ export default function DashboardPage() {
         return;
       }
       setJobs(jobsData);
+      // Load follow-up preview
+      try {
+        const fuRes = await fetch("/api/cron/follow-ups");
+        if (fuRes.ok) {
+          const fuData = await fuRes.json();
+          setFollowUps(fuData.pending || []);
+          setFollowUpDays(fuData.followUpDays || { first: 7, second: 14 });
+        }
+      } catch {
+        // Non-critical — don't block dashboard
+      }
     } catch (err: unknown) {
       console.error("Failed to load dashboard:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -136,6 +161,27 @@ export default function DashboardPage() {
   useEffect(() => {
     loadJobs();
   }, [loadJobs]);
+
+  async function handleSendFollowUps() {
+    setSendingFollowUps(true);
+    try {
+      const res = await fetch("/api/cron/follow-ups", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send follow-ups");
+      toast.success(`Sent ${data.followUpsSent} follow-up${data.followUpsSent !== 1 ? "s" : ""}`);
+      if (data.errors?.length) {
+        toast.error(`${data.errors.length} failed — check console`);
+        console.error("Follow-up errors:", data.errors);
+      }
+      setFollowUps([]);
+      loadJobs(); // Refresh data
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to send";
+      toast.error(msg);
+    } finally {
+      setSendingFollowUps(false);
+    }
+  }
 
   const activeJobs = jobs.filter((j) => j.status === "active" || j.status === "quoting");
   const pendingQuotes = getTotalPendingQuotes(jobs);
@@ -253,6 +299,57 @@ export default function DashboardPage() {
                         <Badge variant="destructive" className="text-xs">
                           {alert.daysAgo}d ago
                         </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Follow-Ups Ready to Send */}
+            {followUps.length > 0 && (
+              <Card className="border-blue-200">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Send className="w-4 h-4 text-blue-500" />
+                      Follow-Ups Ready ({followUps.length})
+                    </CardTitle>
+                    <Button
+                      onClick={handleSendFollowUps}
+                      disabled={sendingFollowUps}
+                      size="sm"
+                      className="min-h-[36px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                    >
+                      {sendingFollowUps ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Sending...</>
+                      ) : (
+                        <><Send className="w-3 h-3 mr-1" /> Send All</>
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    1st follow-up after {followUpDays.first} days, 2nd after {followUpDays.second} days.
+                    Change in <Link href="/settings" className="underline">Settings</Link>.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {followUps.map((fu, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm py-1">
+                        <span>
+                          <span className="font-medium">{fu.jobCode}</span>
+                          {" — "}
+                          {fu.tradeName} → {fu.supplierName}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-xs">
+                            {fu.daysAgo}d ago
+                          </Badge>
+                          <Badge className="text-xs bg-blue-100 text-blue-800">
+                            {fu.followUpType}
+                          </Badge>
+                        </div>
                       </div>
                     ))}
                   </div>
