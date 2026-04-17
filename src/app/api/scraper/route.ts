@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { trade, region } = body as { trade: string; region: string };
+  const { trade, region, preview } = body as { trade: string; region: string; preview?: boolean };
 
   if (!trade || !region) {
     return NextResponse.json(
@@ -98,6 +98,19 @@ export async function POST(request: NextRequest) {
         status: "unverified",
         rating: 3,
         notes: `Found via Google Places. Address: ${place.formatted_address || "N/A"}${place.website ? `. Website: ${place.website}` : ""}`,
+      });
+    }
+
+    // Preview mode: return results without saving (for modal selection)
+    if (preview) {
+      return NextResponse.json({
+        found: places.length,
+        results: places.map((p) => ({
+          company: p.name,
+          phone: p.formatted_phone_number || "",
+          website: p.website || "",
+          address: p.formatted_address || "",
+        })),
       });
     }
 

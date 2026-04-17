@@ -31,8 +31,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Star } from "lucide-react";
-import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk } from "@/lib/supabase";
+import { Plus, Pencil, Trash2, Upload, Truck, Star, Search, Loader2 } from "lucide-react";
+import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Supplier } from "@/types";
@@ -74,8 +74,22 @@ export default function SuppliersPage() {
   const [touched, setTouched] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Scraper modal state
+  const [scraperOpen, setScraperOpen] = useState(false);
+  const [scraperTrade, setScraperTrade] = useState("");
+  const [scraperRegion, setScraperRegion] = useState("");
+  const [scraperResults, setScraperResults] = useState<{ company: string; phone: string; website: string; address: string }[]>([]);
+  const [scraperLoading, setScraperLoading] = useState(false);
+  const [selectedResults, setSelectedResults] = useState<Set<number>>(new Set());
+  const [scraperRegions, setScraperRegions] = useState<string[]>(DEFAULT_REGIONS);
+  const [scraperSaving, setScraperSaving] = useState(false);
+
   useEffect(() => {
     loadSuppliers();
+    // Load regions from settings
+    getSettings().then((s) => {
+      if (s.regions && s.regions.length > 0) setScraperRegions(s.regions);
+    }).catch(() => {});
   }, []);
 
   async function loadSuppliers() {
@@ -222,6 +236,70 @@ export default function SuppliersPage() {
     });
   }
 
+  async function handleScraperSearch() {
+    if (!scraperTrade || !scraperRegion) return;
+    setScraperLoading(true);
+    setScraperResults([]);
+    setSelectedResults(new Set());
+    try {
+      const tradeName = TRADES.find((t) => t.code === scraperTrade)?.name || scraperTrade;
+      const res = await fetch("/api/scraper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trade: tradeName, region: scraperRegion, preview: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Search failed");
+      setScraperResults(data.results || []);
+    } catch (err) {
+      console.error("Scraper search failed:", err);
+    } finally {
+      setScraperLoading(false);
+    }
+  }
+
+  function toggleScraperResult(index: number) {
+    setSelectedResults((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  async function handleAddSelected() {
+    if (selectedResults.size === 0) return;
+    setScraperSaving(true);
+    try {
+      const newSuppliers: Supplier[] = [];
+      for (const idx of Array.from(selectedResults)) {
+        const r = scraperResults[idx];
+        if (!r) continue;
+        newSuppliers.push({
+          id: uuidv4(),
+          company: r.company,
+          contact: "",
+          email: "",
+          phone: r.phone,
+          trades: scraperTrade ? [scraperTrade] : [],
+          regions: scraperRegion ? [scraperRegion] : [],
+          status: "unverified",
+          rating: 3,
+          notes: r.website ? `Website: ${r.website}` : "",
+        });
+      }
+      await saveSuppliersBulk(newSuppliers);
+      setSuppliers((prev) => [...prev, ...newSuppliers]);
+      setScraperOpen(false);
+      setScraperResults([]);
+      setSelectedResults(new Set());
+    } catch (err) {
+      console.error("Failed to add suppliers:", err);
+    } finally {
+      setScraperSaving(false);
+    }
+  }
+
   const filtered = suppliers.filter(
     (s) =>
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -253,10 +331,105 @@ export default function SuppliersPage() {
                 </span>
               </Button>
             </label>
+            <Button onClick={() => { setScraperOpen(true); setScraperResults([]); setSelectedResults(new Set()); }} variant="outline" className="min-h-[44px]">
+              <Search className="w-4 h-4 mr-2" />
+              Find Local Trades
+            </Button>
             <Button onClick={openCreate} className="min-h-[44px]">
               <Plus className="w-4 h-4 mr-2" />
               Add Supplier
             </Button>
+            {/* Scraper Modal */}
+            <Dialog open={scraperOpen} onOpenChange={setScraperOpen}>
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Find Local Trades</DialogTitle>
+                  <DialogDescription>
+                    Search Google Places for local suppliers by trade and region.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Trade</Label>
+                      <Select value={scraperTrade} onValueChange={setScraperTrade}>
+                        <SelectTrigger className="min-h-[44px]">
+                          <SelectValue placeholder="Select trade" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRADES.filter((t) => t.quotable).map((t) => (
+                            <SelectItem key={t.code} value={t.code}>
+                              {t.code} {t.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Region</Label>
+                      <Select value={scraperRegion} onValueChange={setScraperRegion}>
+                        <SelectTrigger className="min-h-[44px]">
+                          <SelectValue placeholder="Select region" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {scraperRegions.map((r) => (
+                            <SelectItem key={r} value={r}>{r}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleScraperSearch}
+                    disabled={!scraperTrade || !scraperRegion || scraperLoading}
+                    className="w-full min-h-[44px]"
+                  >
+                    {scraperLoading ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Searching...</>
+                    ) : (
+                      <><Search className="w-4 h-4 mr-2" /> Search</>
+                    )}
+                  </Button>
+                  {scraperResults.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">{scraperResults.length} results found</p>
+                      <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+                        {scraperResults.map((r, i) => (
+                          <label key={i} className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px]">
+                            <input
+                              type="checkbox"
+                              checked={selectedResults.has(i)}
+                              onChange={() => toggleScraperResult(i)}
+                              className="w-4 h-4"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{r.company}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {r.phone && <span>{r.phone}</span>}
+                                {r.phone && r.website && <span> &middot; </span>}
+                                {r.website && <span>{r.website}</span>}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          onClick={handleAddSelected}
+                          disabled={selectedResults.size === 0 || scraperSaving}
+                          className="flex-1 min-h-[44px]"
+                        >
+                          {scraperSaving ? "Adding..." : `Add Selected (${selectedResults.size})`}
+                        </Button>
+                        <Button variant="outline" onClick={() => setScraperOpen(false)} className="min-h-[44px]">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
