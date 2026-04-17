@@ -161,10 +161,11 @@ rm src/app/api/upload/route.ts  # if revert doesn't clean new files
 - Add a "Find Local Trades" button next to "Add Supplier" button
 - Add a new `<Dialog>` for the scraper modal:
   - Trade dropdown (uses `TRADES.filter(t => t.quotable)`, shows code + name)
-  - Region dropdown (uses `DEFAULT_REGIONS`)
+  - Region dropdown — loads regions from `getSettings()` (user's custom regions from qp_settings), NOT from the hardcoded `DEFAULT_REGIONS` constant. Fall back to DEFAULT_REGIONS only if settings haven't been configured yet.
   - "Search" button — calls `POST /api/scraper` with `{ trade, region }`
   - Results list — each result is a row with checkbox, company name, phone, website
   - "Add Selected" button — converts checked results to Supplier objects, saves via `saveSuppliersBulk`, refreshes list, closes modal
+- Import `getSettings` from `@/lib/supabase` to load user-configured regions
 - No new files needed — the `/api/scraper` route already exists and works
 
 ### Verification
@@ -186,6 +187,10 @@ grep "/api/scraper" src/app/suppliers/page.tsx
 grep "Add Selected" src/app/suppliers/page.tsx
 # Expected: 1 match
 
+# Uses getSettings for regions, not hardcoded DEFAULT_REGIONS in scraper modal
+grep "getSettings" src/app/suppliers/page.tsx
+# Expected: at least 1 match (already imported for other use, but now also used for scraper regions)
+
 # Build
 npm run build
 npx tsc --noEmit
@@ -200,7 +205,13 @@ git revert <phase-3-commit>
 
 ## Phase 4: Send Quotes Flow (Replace Kanban)
 
+**Pre-check (VERIFIED):** The `Job` type in `src/types/index.ts` already has `region: string` (line 80). The job creation form in `src/app/jobs/new/page.tsx` already has a region dropdown (line 258-268) and saves it to the Job object (line 169). The `qp_jobs` Supabase table stores the full Job JSON including region. No schema changes needed.
+
 **Goal:** `/quotes` is no longer a Kanban board. It becomes the "Send Quotes" page with flow: Job picker dropdown -> Trade chips (multi-select) -> Supplier panels with checkboxes (filtered by selected trades + job region) -> "Preview & Send" button that calls `/api/email/bulk`.
+
+**Region filtering behavior:**
+- When a job has a region set: only show suppliers whose `regions` array includes that region
+- For any existing jobs where region is empty/missing: show ALL suppliers (no region filter) so nothing is silently hidden
 
 ### Files to change
 
@@ -280,9 +291,20 @@ git checkout HEAD~1 -- src/components/quotes/KanbanBoard.tsx
 
 **route.ts:**
 - After loading job data, fetch files from OneDrive folder: `{rootPath}/{jobCode} - {address}/Plans/` (and Engineering, Inclusions)
-- For each PDF file found, download content via `downloadFile()` and convert to base64
-- Build attachments array: `[{ name, contentType: "application/pdf", contentBytes: base64 }]`
-- Pass attachments to `sendEmail()` call (the `sendEmail` function already accepts `attachments` param)
+- For each file found, download content via `downloadFile()`
+- **Size-based attachment strategy:**
+  - Files <= 3MB: convert to base64, add to inline attachments array `[{ name, contentType, contentBytes }]` — passed to `sendEmail()` as before
+  - Files > 3MB: use Microsoft Graph large attachment flow:
+    1. Create a draft message via `POST /me/messages`
+    2. For each large file, create an upload session via `POST /me/messages/{id}/attachments/createUploadSession`
+    3. Upload bytes in 4MB chunks via `PUT` to the upload session URL
+    4. After all attachments uploaded, send via `POST /me/messages/{id}/send`
+  - **Hard cap:** 150MB total per email (Graph API limit). If combined attachments exceed 150MB, return `{ error: "Attachments exceed 150MB Graph API limit" }` with status 413 — do NOT silently truncate or skip files.
+  - If a mix of small + large files: use the draft message flow for ALL files in that email (simpler than splitting)
+- **Empty folder behavior:** If no PDFs exist in any folder (Plans, Engineering, Inclusions all empty):
+  - Send the email WITHOUT attachments — do not crash
+  - Append a line to the email body: "Note: Documents will follow separately."
+  - Do NOT include "please find attached" or similar wording when there are no attachments
 - Replace template-rendered subject with hardcoded format: `"Quote Request — {tradeDisplay} — {job.address}"`
 - Keep template for body content only
 - Import `listFolder`, `downloadFile` from `@/lib/onedrive`
@@ -299,6 +321,14 @@ grep -E "attachment|contentBytes|base64" src/app/api/email/bulk/route.ts
 # Downloads from OneDrive
 grep -E "downloadFile|listFolder" src/app/api/email/bulk/route.ts
 # Expected: matches
+
+# Large attachment flow exists
+grep -E "createUploadSession|draft|150" src/app/api/email/bulk/route.ts
+# Expected: matches for upload session + 150MB cap
+
+# Empty folder graceful handling
+grep "Documents will follow separately" src/app/api/email/bulk/route.ts
+# Expected: 1 match
 
 # Hardcoded subject format
 grep "Quote Request" src/app/api/email/bulk/route.ts
@@ -342,5 +372,6 @@ git revert <phase-5-commit>
 
 1. **Phase 2 (uploads):** Relies on user having a valid OneDrive access token in session. If token is expired, upload will fail with 401. The existing token refresh logic should handle this, but worth testing manually.
 2. **Phase 4 (Kanban delete):** If any other page secretly imports KanbanBoard, the build will break. Grep check covers this.
-3. **Phase 5 (PDF attach):** OneDrive folder might be empty (no plans uploaded yet). The code must handle this gracefully — send email without attachments if no PDFs found, not crash.
-4. **Phase 5 (PDF size):** Graph API has a 4MB limit per attachment via the simple upload path. Large PDF plans could exceed this. For now, skip files > 3MB and log a warning. Future fix: use the resumable upload API.
+3. **Phase 5 (empty folder):** OneDrive folder might be empty (no plans uploaded yet). Handled: sends email without attachments, appends "Documents will follow separately." to body.
+4. **Phase 5 (PDF size):** Files > 3MB use Graph's large attachment upload session flow (createUploadSession + chunked PUT). Hard cap at 150MB total per email — returns 413 error if exceeded. This is more complex than simple attachments but necessary for construction plan PDFs which routinely exceed 3MB.
+5. **Phase 5 (large attachment flow complexity):** The draft-message + upload-session + send flow is 3 separate Graph API calls per large file. If any step fails mid-way, a draft message may be left behind. The code should clean up (delete draft) on failure.
