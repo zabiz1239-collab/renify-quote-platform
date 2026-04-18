@@ -91,21 +91,38 @@ export async function deleteEstimator(id: string): Promise<void> {
 // ── Suppliers ─────────────────────────────────────────────────────
 
 export async function getSuppliers(): Promise<Supplier[]> {
-  const { data, error } = await supabase.from("qp_suppliers").select("*").order("company");
-  if (error) throw error;
-  return (data || []).map((r) => ({
-    id: r.id,
-    company: r.company,
-    contact: r.contact,
-    email: r.email,
-    phone: r.phone,
-    abn: r.abn || undefined,
-    trades: r.trades,
-    regions: r.regions,
+  // Paginate to get ALL suppliers — Supabase caps at 1000 per request
+  const PAGE_SIZE = 1000;
+  const allRows: Record<string, unknown>[] = [];
+  let from = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from("qp_suppliers")
+      .select("*")
+      .order("company")
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = data || [];
+    allRows.push(...rows);
+    hasMore = rows.length === PAGE_SIZE;
+    from += PAGE_SIZE;
+  }
+
+  return allRows.map((r) => ({
+    id: r.id as string,
+    company: r.company as string,
+    contact: r.contact as string,
+    email: r.email as string,
+    phone: r.phone as string,
+    abn: (r.abn as string) || undefined,
+    trades: r.trades as string[],
+    regions: r.regions as string[],
     status: r.status as Supplier["status"],
-    rating: r.rating,
-    notes: r.notes,
-    lastContacted: r.last_contacted || undefined,
+    rating: r.rating as number,
+    notes: r.notes as string,
+    lastContacted: (r.last_contacted as string) || undefined,
   }));
 }
 
