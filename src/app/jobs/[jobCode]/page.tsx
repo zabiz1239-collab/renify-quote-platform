@@ -210,32 +210,37 @@ export default function JobDetailPage() {
         {/* Documents */}
         {job.documents && job.documents.length > 0 && (
           <Card>
-            <CardHeader><CardTitle>Documents</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Documents ({job.documents.length})</CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {job.documents.map((doc, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-medium flex-1">{doc.name}</span>
-                    <Badge variant="secondary" className="text-xs">{doc.category}</Badge>
+                  <div key={i} className="flex items-center gap-3 p-3 border rounded-lg bg-muted/30">
+                    <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{doc.name}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{doc.category.replace("_", " ")}</p>
+                    </div>
                     <Button
-                      variant="ghost"
+                      variant="destructive"
                       size="sm"
-                      className="min-h-[36px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="min-h-[44px] min-w-[44px] px-3"
                       onClick={async () => {
-                        if (!confirm(`Remove "${doc.name}"?`)) return;
+                        if (!confirm(`Delete "${doc.name}"? This cannot be undone.`)) return;
                         try {
                           const updatedDocs = job.documents.filter((_, idx) => idx !== i);
                           const updatedJob = { ...job, documents: updatedDocs };
                           await saveJob(updatedJob);
                           setJob(updatedJob);
-                          toast.success(`Removed ${doc.name}`);
+                          toast.success(`Deleted ${doc.name}`);
                         } catch {
-                          toast.error("Failed to remove document");
+                          toast.error("Failed to delete document");
                         }
                       }}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Delete
                     </Button>
                   </div>
                 ))}
