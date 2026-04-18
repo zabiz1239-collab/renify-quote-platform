@@ -23,7 +23,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Send, AlertTriangle, Check, Loader2, Mail, Search, CheckCircle, Clock, XCircle } from "lucide-react";
-import { getJobs, getSuppliers, getTemplates } from "@/lib/supabase";
+import { getJobs, getSuppliers, getTemplates, saveJob } from "@/lib/supabase";
+import { Trash2 } from "lucide-react";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job, Supplier, EmailTemplate } from "@/types";
@@ -272,47 +273,69 @@ export default function SendQuotesPage() {
                 </SelectContent>
               </Select>
 
-              {/* Quote status summary for selected job */}
+              {/* Quote status summary with remove option */}
               {(() => {
                 const tradesWithQuotes = (selectedJob.trades || []).filter(
                   (t) => t.quotes && t.quotes.length > 0
                 );
                 if (tradesWithQuotes.length === 0) return null;
+
+                async function removeQuoteRequest(tradeCode: string, supplierId: string, supplierName: string) {
+                  if (!selectedJob) return;
+                  if (!confirm(`Remove quote request from ${supplierName} for this trade?`)) return;
+                  const updatedTrades = (selectedJob.trades || []).map((t) => {
+                    if (t.code !== tradeCode) return t;
+                    return { ...t, quotes: (t.quotes || []).filter((q) => q.supplierId !== supplierId) };
+                  });
+                  const updatedJob: Job = { ...selectedJob, trades: updatedTrades };
+                  try {
+                    await saveJob(updatedJob);
+                    setJobs((prev) => prev.map((j) => j.jobCode === updatedJob.jobCode ? updatedJob : j));
+                    toast.success(`Removed ${supplierName} from ${tradeCode}`);
+                  } catch {
+                    toast.error("Failed to remove quote request");
+                  }
+                }
+
                 return (
-                  <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto">
+                  <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
                     <div className="px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
                       Quotes already requested for this job
                     </div>
-                    {tradesWithQuotes.map((trade) => {
-                      const requested = (trade.quotes || []).filter((q) => q.status === "requested");
-                      const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted");
-                      const declined = (trade.quotes || []).filter((q) => q.status === "declined");
-                      return (
-                        <div key={trade.code} className="flex items-center justify-between px-3 py-2 text-sm">
-                          <span>
-                            <span className="text-muted-foreground">{trade.code}</span>{" "}
-                            {trade.name}
-                          </span>
-                          <div className="flex gap-2">
-                            {requested.length > 0 && (
-                              <span className="flex items-center gap-1 text-xs text-blue-600">
-                                <Clock className="w-3 h-3" /> {requested.length} requested
-                              </span>
-                            )}
-                            {received.length > 0 && (
-                              <span className="flex items-center gap-1 text-xs text-green-600">
-                                <CheckCircle className="w-3 h-3" /> {received.length} received
-                              </span>
-                            )}
-                            {declined.length > 0 && (
-                              <span className="flex items-center gap-1 text-xs text-red-600">
-                                <XCircle className="w-3 h-3" /> {declined.length} declined
-                              </span>
+                    {tradesWithQuotes.map((trade) => (
+                      <div key={trade.code}>
+                        <div className="px-3 py-2 bg-muted/30 text-xs font-medium">
+                          {trade.code} {trade.name} — {(trade.quotes || []).length} quote{(trade.quotes || []).length !== 1 ? "s" : ""}
+                        </div>
+                        {(trade.quotes || []).map((q, qi) => (
+                          <div key={qi} className="flex items-center justify-between px-3 py-1.5 pl-6 text-sm">
+                            <div className="flex items-center gap-2">
+                              {q.status === "requested" && <Clock className="w-3 h-3 text-blue-500" />}
+                              {(q.status === "received" || q.status === "accepted") && <CheckCircle className="w-3 h-3 text-green-500" />}
+                              {q.status === "declined" && <XCircle className="w-3 h-3 text-red-500" />}
+                              <span className="text-xs">{q.supplierName}</span>
+                              <Badge className={`text-[10px] px-1.5 py-0 ${
+                                q.status === "requested" ? "bg-blue-100 text-blue-800" :
+                                q.status === "received" || q.status === "accepted" ? "bg-green-100 text-green-800" :
+                                "bg-red-100 text-red-800"
+                              }`}>{q.status}</Badge>
+                              {q.priceExGST && <span className="text-xs font-mono">${q.priceExGST.toLocaleString()}</span>}
+                            </div>
+                            {q.status === "requested" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="min-h-[32px] text-xs text-destructive hover:text-destructive hover:bg-destructive/10 px-2"
+                                onClick={() => removeQuoteRequest(trade.code, q.supplierId, q.supplierName)}
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                Remove
+                              </Button>
                             )}
                           </div>
-                        </div>
-                      );
-                    })}
+                        ))}
+                      </div>
+                    ))}
                   </div>
                 );
               })()}
