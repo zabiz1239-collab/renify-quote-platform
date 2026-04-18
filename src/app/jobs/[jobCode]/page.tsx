@@ -6,14 +6,30 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2 } from "lucide-react";
-import { getJob, getEstimators, saveJob } from "@/lib/supabase";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles } from "lucide-react";
+import { getJob, getEstimators, getSuppliers, saveJob } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { toast } from "sonner";
-import type { Job, Estimator } from "@/types";
+import type { Job, Estimator, Supplier } from "@/types";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-blue-100 text-blue-800",
@@ -41,16 +57,30 @@ export default function JobDetailPage() {
 
   const [job, setJob] = useState<Job | null>(null);
   const [estimator, setEstimator] = useState<Estimator | null>(null);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingZone, setUploadingZone] = useState<string | null>(null);
 
+  // Receive quote dialog state
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [receiveTradeCode, setReceiveTradeCode] = useState("");
+  const [receiveSupplierId, setReceiveSupplierId] = useState("");
+  const [receivePriceExGST, setReceivePriceExGST] = useState("");
+  const [receivePriceIncGST, setReceivePriceIncGST] = useState("");
+  const [receiveExpiry, setReceiveExpiry] = useState("");
+  const [receiveFile, setReceiveFile] = useState<File | null>(null);
+  const [receiveSubmitting, setReceiveSubmitting] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
-      const [jobData, estimators] = await Promise.all([
+      const [jobData, estimators, suppliersData] = await Promise.all([
         getJob(decodeURIComponent(jobCode)),
         getEstimators(),
+        getSuppliers(),
       ]);
       setJob(jobData);
+      setSuppliers(suppliersData);
       if (jobData?.estimatorId) {
         setEstimator(estimators.find((e) => e.id === jobData.estimatorId) || null);
       }
@@ -87,6 +117,72 @@ export default function JobDetailPage() {
       toast.success(`Status updated to ${newStatus}`);
     } catch {
       toast.error("Failed to update status");
+    }
+  }
+
+  function openReceive(tradeCode: string) {
+    setReceiveTradeCode(tradeCode);
+    setReceiveSupplierId("");
+    setReceivePriceExGST("");
+    setReceivePriceIncGST("");
+    setReceiveExpiry("");
+    setReceiveFile(null);
+    setReceiveOpen(true);
+  }
+
+  const receiveMatchingSuppliers = suppliers.filter((s) => s.trades.includes(receiveTradeCode));
+
+  async function handleOcr() {
+    if (!receiveFile) return;
+    setOcrLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", receiveFile);
+      const res = await fetch("/api/ocr", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "OCR failed");
+      if (data.priceExGST && !receivePriceExGST) setReceivePriceExGST(String(data.priceExGST));
+      if (data.priceIncGST && !receivePriceIncGST) setReceivePriceIncGST(String(data.priceIncGST));
+      if (data.expiryDate && !receiveExpiry) setReceiveExpiry(data.expiryDate);
+      toast.success("AI extracted prices");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "OCR failed");
+    } finally {
+      setOcrLoading(false);
+    }
+  }
+
+  async function handleReceiveSubmit() {
+    if (!job || !receiveTradeCode || !receiveSupplierId || !receivePriceExGST) {
+      toast.error("Please fill in supplier and price");
+      return;
+    }
+    const supplier = suppliers.find((s) => s.id === receiveSupplierId);
+    if (!supplier) return;
+
+    setReceiveSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append("jobCode", job.jobCode);
+      formData.append("tradeCode", receiveTradeCode);
+      formData.append("supplierId", receiveSupplierId);
+      formData.append("supplierName", supplier.company);
+      formData.append("priceExGST", receivePriceExGST);
+      if (receivePriceIncGST) formData.append("priceIncGST", receivePriceIncGST);
+      if (receiveExpiry) formData.append("quoteExpiry", receiveExpiry);
+      if (receiveFile) formData.append("file", receiveFile);
+
+      const res = await fetch("/api/quotes/receive", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to record quote");
+
+      toast.success(`Quote recorded — v${data.version}`);
+      setReceiveOpen(false);
+      await loadData(); // Refresh job data
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to record quote");
+    } finally {
+      setReceiveSubmitting(false);
     }
   }
 
@@ -336,6 +432,15 @@ export default function JobDetailPage() {
                       <span className="text-xs text-muted-foreground">
                         {trade.quotes?.length || 0} quote{(trade.quotes?.length || 0) !== 1 ? "s" : ""}
                       </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-[36px] text-xs border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
+                        onClick={() => openReceive(trade.code)}
+                      >
+                        <FileInput className="w-3 h-3 mr-1" />
+                        Receive
+                      </Button>
                     </div>
                   </div>
                 );
@@ -381,6 +486,144 @@ export default function JobDetailPage() {
             </CardContent>
           </Card>
         )}
+        {/* Receive Quote Dialog */}
+        <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                Receive Quote — {job.trades?.find((t) => t.code === receiveTradeCode)?.name || receiveTradeCode}
+              </DialogTitle>
+              <DialogDescription>
+                {job.jobCode} — {job.address}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              {/* Supplier */}
+              <div className="space-y-2">
+                <Label>Supplier *</Label>
+                <Select value={receiveSupplierId} onValueChange={setReceiveSupplierId}>
+                  <SelectTrigger className="min-h-[44px]">
+                    <SelectValue placeholder="Choose supplier..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {receiveMatchingSuppliers.length > 0 ? (
+                      receiveMatchingSuppliers.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.company} ({s.email || "no email"})
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="_none" disabled>No suppliers for this trade</SelectItem>
+                    )}
+                    {receiveMatchingSuppliers.length > 0 && suppliers.length > receiveMatchingSuppliers.length && (
+                      <>
+                        <SelectItem value="_div" disabled>── Other suppliers ──</SelectItem>
+                        {suppliers
+                          .filter((s) => !receiveMatchingSuppliers.some((m) => m.id === s.id))
+                          .map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.company} ({s.email || "no email"})
+                            </SelectItem>
+                          ))}
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* PDF upload */}
+              <div className="space-y-2">
+                <Label>Quote PDF</Label>
+                <label className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed rounded-lg cursor-pointer hover:border-[#2D5E3A] hover:bg-muted/50 min-h-[60px]">
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setReceiveFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {receiveFile ? (
+                    <div className="flex items-center gap-2">
+                      <FileInput className="w-4 h-4 text-[#2D5E3A]" />
+                      <span className="text-sm">{receiveFile.name}</span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Click to upload PDF</span>
+                  )}
+                </label>
+              </div>
+
+              {/* OCR */}
+              {receiveFile && (
+                <Button onClick={handleOcr} disabled={ocrLoading} variant="outline" className="w-full min-h-[44px]">
+                  {ocrLoading ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Extracting...</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4 mr-2" /> Extract prices with AI</>
+                  )}
+                </Button>
+              )}
+
+              {/* Prices */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Price ex GST *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={receivePriceExGST}
+                    onChange={(e) => setReceivePriceExGST(e.target.value)}
+                    className="min-h-[44px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Price inc GST</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={receivePriceIncGST}
+                    onChange={(e) => setReceivePriceIncGST(e.target.value)}
+                    className="min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              {/* Expiry */}
+              <div className="space-y-2">
+                <Label>Quote Expiry</Label>
+                <Input
+                  type="date"
+                  value={receiveExpiry}
+                  onChange={(e) => setReceiveExpiry(e.target.value)}
+                  className="min-h-[44px]"
+                />
+              </div>
+
+              {/* Submit */}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={handleReceiveSubmit}
+                  disabled={receiveSubmitting || !receiveSupplierId || !receivePriceExGST}
+                  className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                >
+                  {receiveSubmitting ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Recording...</>
+                  ) : (
+                    <><FileInput className="w-4 h-4 mr-2" /> Record Quote</>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => setReceiveOpen(false)} className="min-h-[44px]">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AuthLayout>
   );

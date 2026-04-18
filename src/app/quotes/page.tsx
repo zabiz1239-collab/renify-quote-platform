@@ -3,7 +3,6 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +22,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Send, AlertTriangle, Check, Loader2, Mail, FileInput, Search, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Send, AlertTriangle, Check, Loader2, Mail, Search, CheckCircle, Clock, XCircle } from "lucide-react";
 import { getJobs, getSuppliers, getTemplates } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -162,15 +161,7 @@ export default function SendQuotesPage() {
   return (
     <AuthLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Send Quotes</h1>
-          <Link href="/quotes/intake">
-            <Button variant="outline" className="min-h-[44px]">
-              <FileInput className="w-4 h-4 mr-2" />
-              Receive Quote
-            </Button>
-          </Link>
-        </div>
+        <h1 className="text-2xl font-bold">Send Quotes</h1>
 
         {/* Step 1: Job Picker */}
         <Card>
