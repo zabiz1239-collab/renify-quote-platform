@@ -23,6 +23,7 @@ import { getExpiringQuotes } from "@/lib/notifications";
 import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { ErrorMessage } from "@/components/ui/error-boundary";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { toast } from "sonner";
 import type { Job } from "@/types";
 
@@ -183,6 +184,10 @@ export default function DashboardPage() {
     }
   }
 
+  const { containerRef, pullDistance, refreshing } = usePullToRefresh({
+    onRefresh: loadJobs,
+  });
+
   const activeJobs = jobs.filter((j) => j.status === "active" || j.status === "quoting");
   const pendingQuotes = getTotalPendingQuotes(jobs);
   const receivedThisWeek = getWeeklyReceivedCount(jobs);
@@ -193,7 +198,22 @@ export default function DashboardPage() {
 
   return (
     <AuthLayout>
-      <div className="space-y-6">
+      <div ref={containerRef} className="space-y-6">
+        {/* Pull-to-refresh indicator */}
+        {(pullDistance > 0 || refreshing) && (
+          <div
+            className="flex items-center justify-center text-sm text-muted-foreground transition-all"
+            style={{ height: pullDistance > 0 ? pullDistance : 40 }}
+          >
+            {refreshing ? (
+              <Loader2 className="w-5 h-5 animate-spin text-[#2D5E3A]" />
+            ) : pullDistance >= 80 ? (
+              "Release to refresh"
+            ) : (
+              "Pull to refresh"
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <Link href="/jobs/new">

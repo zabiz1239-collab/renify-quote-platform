@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SessionProvider from "@/components/providers/SessionProvider";
 import ServiceWorkerRegistrar from "@/components/providers/ServiceWorkerRegistrar";
+import SyncManager from "@/components/providers/SyncManager";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <SessionProvider>
+          <SyncManager />
           {children}
         </SessionProvider>
         <Toaster position="top-right" richColors closeButton duration={4000} visibleToasts={3} />

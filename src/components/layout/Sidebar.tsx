@@ -13,6 +13,7 @@ import {
   BarChart3,
   FileText,
   Users,
+  Columns3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs", icon: Briefcase },
   { href: "/suppliers", label: "Suppliers", icon: Truck },
+  { href: "/kanban", label: "Quote Board", icon: Columns3 },
   { href: "/quotes/intake", label: "Receive Quote", icon: FileInput },
   { href: "/quotes", label: "Send Quotes", icon: Mail },
   { href: "/compare", label: "Compare", icon: BarChart3 },

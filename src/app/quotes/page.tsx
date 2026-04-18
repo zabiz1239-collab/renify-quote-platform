@@ -358,15 +358,28 @@ export default function SendQuotesPage() {
           </Card>
         )}
 
-        {/* Sticky action buttons */}
-        {checkedSuppliers.size > 0 && (
+        {/* Action buttons */}
+        {selectedJobCode && (
           <div className="sticky bottom-4 z-10 flex gap-3">
             <Button
+              variant="outline"
+              onClick={() => {
+                setSelectedJobCode("");
+                setSelectedTradeCode("");
+                setCheckedSuppliers(new Set());
+                setSupplierSearch("");
+              }}
+              className="min-h-[52px] text-base shadow-lg"
+            >
+              Clear All
+            </Button>
+            <Button
               onClick={() => setPreviewOpen(true)}
+              disabled={checkedSuppliers.size === 0}
               className="flex-1 min-h-[52px] text-base shadow-lg bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
             >
               <Send className="w-5 h-5 mr-2" />
-              Preview & Send ({checkedSuppliers.size} supplier{checkedSuppliers.size !== 1 ? "s" : ""})
+              Send Quote{checkedSuppliers.size > 0 ? ` (${checkedSuppliers.size} supplier${checkedSuppliers.size !== 1 ? "s" : ""})` : ""}
             </Button>
           </div>
         )}

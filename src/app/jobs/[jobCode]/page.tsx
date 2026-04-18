@@ -216,8 +216,27 @@ export default function JobDetailPage() {
                 {job.documents.map((doc, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <FileText className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-medium">{doc.name}</span>
+                    <span className="font-medium flex-1">{doc.name}</span>
                     <Badge variant="secondary" className="text-xs">{doc.category}</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="min-h-[36px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={async () => {
+                        if (!confirm(`Remove "${doc.name}"?`)) return;
+                        try {
+                          const updatedDocs = job.documents.filter((_, idx) => idx !== i);
+                          const updatedJob = { ...job, documents: updatedDocs };
+                          await saveJob(updatedJob);
+                          setJob(updatedJob);
+                          toast.success(`Removed ${doc.name}`);
+                        } catch {
+                          toast.error("Failed to remove document");
+                        }
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 ))}
               </div>

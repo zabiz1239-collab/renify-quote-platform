@@ -2,6 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, BarChart3 } from "lucide-react";
 import { getEstimators, saveEstimator as saveEstimatorToDb, deleteEstimator as deleteEstimatorFromDb } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Estimator } from "@/types";
@@ -125,10 +126,18 @@ export default function EstimatorsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Estimators</h1>
-          <Button onClick={openCreate} className="min-h-[44px]">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Estimator
-          </Button>
+          <div className="flex gap-2">
+            <Link href="/estimators/workload">
+              <Button variant="outline" className="min-h-[44px]">
+                <BarChart3 className="w-4 h-4 mr-2" />
+                Workload
+              </Button>
+            </Link>
+            <Button onClick={openCreate} className="min-h-[44px]">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Estimator
+            </Button>
+          </div>
         </div>
 
         {loading ? (
