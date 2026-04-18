@@ -2,16 +2,54 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { getSuppliers, getEstimators, getTemplates, getJob, saveJob, getSettings } from "@/lib/supabase";
+import { getEstimators, getTemplates, getJob, saveJob, getSettings } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { renderTemplate, findTemplate, getGroupedTradeCodes, getTradeDisplayName } from "@/lib/templates";
 import { listFolder, downloadFile } from "@/lib/onedrive";
+import type { Supplier } from "@/types";
 
-const MAX_TOTAL_SIZE = 150 * 1024 * 1024; // 150MB
+const MAX_SMTP_SIZE = 20 * 1024 * 1024; // 20MB Hostinger SMTP limit
 
 interface AttachmentFile {
   name: string;
   content: ArrayBuffer;
   size: number;
+}
+
+// Fetch ALL suppliers with proper pagination — bypasses PostgREST 1000-row cap
+async function fetchAllSuppliers(): Promise<Supplier[]> {
+  const PAGE = 1000;
+  const all: Record<string, unknown>[] = [];
+  let from = 0;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from("qp_suppliers")
+      .select("*")
+      .order("company")
+      .range(from, from + PAGE - 1);
+
+    if (error) throw error;
+    const rows = data || [];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return all.map((r) => ({
+    id: r.id as string,
+    company: r.company as string,
+    contact: r.contact as string,
+    email: r.email as string,
+    phone: r.phone as string,
+    abn: (r.abn as string) || undefined,
+    trades: r.trades as string[],
+    regions: r.regions as string[],
+    status: r.status as Supplier["status"],
+    rating: r.rating as number,
+    notes: r.notes as string,
+    lastContacted: (r.last_contacted as string) || undefined,
+  }));
 }
 
 export async function POST(request: NextRequest) {
@@ -23,8 +61,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const {
     jobCode,
-    selections, // Array of { supplierId, tradeCodes[] }
-    templateId, // Optional: override template selection
+    selections,
+    templateId,
   } = body as {
     jobCode: string;
     selections: { supplierId: string; tradeCodes: string[] }[];
@@ -40,9 +78,9 @@ export async function POST(request: NextRequest) {
 
   const accessToken = session.accessToken;
 
-  // Load all data from Supabase
+  // Load all data
   const [suppliers, estimators, templates, job, settings] = await Promise.all([
-    getSuppliers(),
+    fetchAllSuppliers(),
     getEstimators(),
     getTemplates(),
     getJob(jobCode),
@@ -58,10 +96,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No estimator found" }, { status: 400 });
   }
 
+  // Collect PDF attachments from OneDrive (best-effort — token may be expired)
   const rootPath = settings.oneDriveRootPath;
   const jobFolder = `${job.jobCode} - ${job.address}`;
-
-  // Collect PDF attachments from all 5 category folders
   const categoryFolders = ["Plans", "Engineering", "Inclusions", "Colour Selection", "Other"];
   const attachmentFiles: AttachmentFile[] = [];
 
@@ -73,55 +110,61 @@ export async function POST(request: NextRequest) {
         if (item.file && item.name.toLowerCase().endsWith(".pdf")) {
           const filePath = `${rootPath}/${jobFolder}/${folder}/${item.name}`;
           const content = await downloadFile(accessToken, filePath);
-          attachmentFiles.push({
-            name: item.name,
-            content,
-            size: content.byteLength,
-          });
+          attachmentFiles.push({ name: item.name, content, size: content.byteLength });
         }
       }
     } catch {
-      // Folder doesn't exist or is empty — skip silently
+      // Folder missing or token expired — continue without attachments
     }
   }
 
-  // Check 150MB total cap
-  const totalSize = attachmentFiles.reduce((sum, f) => sum + f.size, 0);
-  if (totalSize > MAX_TOTAL_SIZE) {
-    return NextResponse.json(
-      { error: "Attachments exceed 150MB Graph API limit" },
-      { status: 413 }
-    );
+  // 20MB SMTP size guard
+  const totalAttachmentSize = attachmentFiles.reduce((sum, f) => sum + f.size, 0);
+  const useAttachments = totalAttachmentSize <= MAX_SMTP_SIZE;
+
+  if (!useAttachments && attachmentFiles.length > 0) {
+    console.log(JSON.stringify({
+      evt: "attachment_size_warning",
+      jobCode,
+      totalBytes: totalAttachmentSize,
+      fileCount: attachmentFiles.length,
+      msg: "Attachments exceed 20MB SMTP limit — sending without attachments",
+    }));
   }
 
-  const hasAttachments = attachmentFiles.length > 0;
-
-
-  // Group selections by supplier — combine trade codes that share a supplier
-  const supplierMap = new Map<string, string[]>();
+  // Group selections by supplier
+  const supplierGroups: { supplierId: string; tradeCodes: string[] }[] = [];
   for (const sel of selections) {
-    const existing = supplierMap.get(sel.supplierId) || [];
+    const existing = supplierGroups.find((g) => g.supplierId === sel.supplierId);
+    const codes: string[] = [];
     for (const code of sel.tradeCodes) {
       const grouped = getGroupedTradeCodes(code);
       for (const gc of grouped) {
-        if (!existing.includes(gc)) existing.push(gc);
+        if (!codes.includes(gc)) codes.push(gc);
       }
     }
-    supplierMap.set(sel.supplierId, existing);
+    if (existing) {
+      for (const c of codes) {
+        if (!existing.tradeCodes.includes(c)) existing.tradeCodes.push(c);
+      }
+    } else {
+      supplierGroups.push({ supplierId: sel.supplierId, tradeCodes: codes });
+    }
   }
 
   const results: { supplier: string; tradeCodes: string[]; success: boolean; error?: string }[] = [];
 
-  for (const [supplierId, tradeCodes] of Array.from(supplierMap.entries())) {
+  for (const { supplierId, tradeCodes } of supplierGroups) {
     const supplier = suppliers.find((s) => s.id === supplierId);
     if (!supplier) {
-      console.error(`[Email] Supplier not found: ${supplierId}. Total suppliers loaded: ${suppliers.length}`);
-      results.push({ supplier: supplierId, tradeCodes, success: false, error: `Supplier not found (id: ${supplierId}, loaded: ${suppliers.length} suppliers)` });
+      const err = `Supplier not found (id: ${supplierId}, loaded: ${suppliers.length})`;
+      console.error(`[Email] ${err}`);
+      results.push({ supplier: supplierId, tradeCodes, success: false, error: err });
       continue;
     }
 
-    // Find template — use override if provided, otherwise auto-match
-    const template = templateId
+    // Find template
+    const template = templateId && templateId !== "auto"
       ? templates.find((t) => t.id === templateId)
       : findTemplate(templates, tradeCodes, "request");
     if (!template) {
@@ -129,32 +172,31 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const context = { supplier, job, estimator, tradeCodes };
+    // Contact name fallback — never send "Hi ,"
+    const contactName = (supplier.contact || "").trim() || (supplier.company || "").trim() || "team";
+    const safeSupplier = { ...supplier, contact: contactName };
+
+    const context = { supplier: safeSupplier, job, estimator, tradeCodes };
     const tradeDisplay = getTradeDisplayName(tradeCodes);
-
-    // Hardcoded subject format
     const subject = `Quote Request — ${tradeDisplay} — ${job.address}`;
-
-    // Render body from template
     let htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
 
-    // If no attachments, append note
-    if (!hasAttachments) {
+    // Build attachments for SMTP
+    const emailAttachments = useAttachments && attachmentFiles.length > 0
+      ? attachmentFiles.map((f) => ({
+          name: f.name,
+          contentType: "application/pdf",
+          contentBytes: Buffer.from(f.content).toString("base64"),
+        }))
+      : [];
+
+    if (!useAttachments && attachmentFiles.length > 0) {
+      htmlBody += "<br><br><em>Note: Attachments were too large to include in this email. Plans and specifications will follow separately.</em>";
+    } else if (attachmentFiles.length === 0) {
       htmlBody += "<br><br><em>Note: Documents will follow separately.</em>";
     }
 
     try {
-      // Send via SMTP with all attachments
-      const emailAttachments = hasAttachments
-        ? attachmentFiles.map((f) => ({
-            name: f.name,
-            contentType: "application/pdf",
-            contentBytes: Buffer.from(f.content).toString("base64"),
-          }))
-        : [];
-
-      console.log(`[Email] Sending to ${supplier.email} for ${tradeDisplay} (${supplier.company})`);
-
       await sendEmail({
         to: [supplier.email],
         subject,
@@ -162,9 +204,20 @@ export async function POST(request: NextRequest) {
         attachments: emailAttachments,
       });
 
-      console.log(`[Email] Success: ${supplier.email}`);
+      // Structured log for observability
+      console.log(JSON.stringify({
+        evt: "quote_email_sent",
+        jobCode,
+        supplierId,
+        supplierEmail: supplier.email,
+        trade: tradeDisplay,
+        subject,
+        bodyPreview: htmlBody.replace(/<[^>]+>/g, "").slice(0, 120),
+        attachments: emailAttachments.map((a) => ({ name: a.name, bytes: Buffer.from(a.contentBytes, "base64").length })),
+        totalBytes: emailAttachments.reduce((s, a) => s + Buffer.from(a.contentBytes, "base64").length, 0),
+      }));
 
-      // Update quote status for each trade
+      // Update quote status
       for (const tradeCode of tradeCodes) {
         const tradeIndex = job.trades.findIndex((t) => t.code === tradeCode);
         if (tradeIndex === -1) continue;
@@ -190,11 +243,20 @@ export async function POST(request: NextRequest) {
       results.push({ supplier: supplier.company, tradeCodes, success: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Send failed";
-      console.error(`[Email] FAILED for ${supplier.email}:`, msg, err);
+      const code = (err as { code?: string }).code;
+      console.error(JSON.stringify({
+        evt: "quote_email_failed",
+        jobCode,
+        supplierId,
+        supplierEmail: supplier.email,
+        trade: tradeDisplay,
+        error: msg,
+        code,
+      }));
       results.push({ supplier: supplier.company, tradeCodes, success: false, error: msg });
     }
 
-    // Rate limiting: 1 second delay between sends
+    // Rate limiting
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 

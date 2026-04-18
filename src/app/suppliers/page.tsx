@@ -525,14 +525,16 @@ export default function SuppliersPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Contact Person</Label>
+                      <Label>Contact Person *</Label>
                       <Input
                         value={form.contact}
                         onChange={(e) =>
                           setForm((p) => ({ ...p, contact: e.target.value }))
                         }
-                        className="min-h-[44px]"
+                        placeholder="Name for email greeting"
+                        className={`min-h-[44px] ${touched && !form.contact ? "border-red-500" : ""}`}
                       />
+                      {touched && !form.contact && <p className="text-xs text-red-500">Contact name is used in email greetings</p>}
                     </div>
                     <div className="space-y-2">
                       <Label>Phone</Label>
