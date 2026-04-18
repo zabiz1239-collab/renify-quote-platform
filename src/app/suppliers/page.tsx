@@ -187,50 +187,99 @@ export default function SuppliersPage() {
       skipEmptyLines: true,
       complete: async (results) => {
         const rows = results.data as Record<string, string>[];
-        let added = 0;
         let skipped = 0;
-        const newSuppliers = [...suppliers];
+
+        // Group rows by email — merge trades and regions for same supplier
+        const supplierMap: Record<string, {
+          company: string;
+          contact: string;
+          email: string;
+          phone: string;
+          trades: string[];
+          regions: string[];
+        }> = {};
 
         for (const row of rows) {
           const email = (row.email || "").trim().toLowerCase();
-          if (!email) {
-            skipped++;
-            continue;
-          }
+          if (!email) { skipped++; continue; }
 
-          // Deduplicate by email
-          if (newSuppliers.some((s) => s.email.toLowerCase() === email)) {
-            skipped++;
-            continue;
-          }
-
-          // Map trade name to code if possible
           const tradeName = (row.trade || "").trim().toUpperCase();
           const tradeMatch = TRADES.find(
             (t) => t.name === tradeName || t.code === tradeName
           );
+          const region = (row.region || "").trim();
 
-          newSuppliers.push({
-            id: uuidv4(),
-            company: (row.company || "").trim(),
-            contact: (row.contact || "").trim(),
-            email,
-            phone: (row.phone || "").trim(),
-            trades: tradeMatch ? [tradeMatch.code] : [],
-            regions: (row.region || "").trim() ? [(row.region || "").trim()] : [],
-            status: "unverified",
-            rating: 3,
-            notes: "",
-          });
-          added++;
+          const existing = supplierMap[email];
+          if (existing) {
+            if (tradeMatch && !existing.trades.includes(tradeMatch.code)) existing.trades.push(tradeMatch.code);
+            if (region && !existing.regions.includes(region)) existing.regions.push(region);
+          } else {
+            supplierMap[email] = {
+              company: (row.company || "").trim(),
+              contact: (row.contact || "").trim(),
+              email,
+              phone: (row.phone || "").trim(),
+              trades: tradeMatch ? [tradeMatch.code] : [],
+              regions: region ? [region] : [],
+            };
+          }
         }
 
-        if (added > 0) {
-          const newEntries = newSuppliers.slice(suppliers.length);
-          await saveSuppliersBulk(newEntries);
-          setSuppliers(newSuppliers);
+        // Split into new suppliers vs existing ones that need trade/region updates
+        const toCreate: Supplier[] = [];
+        const toUpdate: Supplier[] = [];
+
+        Object.entries(supplierMap).forEach(([email, data]) => {
+          const existingSupplier = suppliers.find((s) => s.email.toLowerCase() === email);
+          if (existingSupplier) {
+            // Merge new trades and regions into existing supplier
+            const mergedTrades = existingSupplier.trades.slice();
+            data.trades.forEach((t) => { if (!mergedTrades.includes(t)) mergedTrades.push(t); });
+            const mergedRegions = existingSupplier.regions.slice();
+            data.regions.forEach((r) => { if (!mergedRegions.includes(r)) mergedRegions.push(r); });
+            if (mergedTrades.length > existingSupplier.trades.length || mergedRegions.length > existingSupplier.regions.length) {
+              toUpdate.push({
+                ...existingSupplier,
+                trades: mergedTrades,
+                regions: mergedRegions,
+              });
+            }
+          } else {
+            toCreate.push({
+              id: uuidv4(),
+              company: data.company,
+              contact: data.contact,
+              email: data.email,
+              phone: data.phone,
+              trades: Array.from(data.trades),
+              regions: Array.from(data.regions),
+              status: "unverified",
+              rating: 3,
+              notes: "",
+            });
+          }
+        });
+
+        // Save new suppliers
+        if (toCreate.length > 0) {
+          await saveSuppliersBulk(toCreate);
         }
-        setCsvResult(`Imported ${added} suppliers, skipped ${skipped} (duplicate or invalid).`);
+        // Update existing suppliers with merged trades/regions
+        for (const sup of toUpdate) {
+          await saveSupplierToDb(sup);
+        }
+
+        // Refresh list
+        if (toCreate.length > 0 || toUpdate.length > 0) {
+          const refreshed = await fetchSuppliers();
+          setSuppliers(refreshed);
+        }
+
+        const parts: string[] = [];
+        if (toCreate.length > 0) parts.push(`${toCreate.length} new suppliers added`);
+        if (toUpdate.length > 0) parts.push(`${toUpdate.length} existing suppliers updated with new trades`);
+        if (skipped > 0) parts.push(`${skipped} rows skipped (no email)`);
+        setCsvResult(parts.join(", ") + ".");
         if (fileInputRef.current) fileInputRef.current.value = "";
       },
     });
