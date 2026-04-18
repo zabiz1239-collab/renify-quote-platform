@@ -115,7 +115,8 @@ export async function POST(request: NextRequest) {
   for (const [supplierId, tradeCodes] of Array.from(supplierMap.entries())) {
     const supplier = suppliers.find((s) => s.id === supplierId);
     if (!supplier) {
-      results.push({ supplier: supplierId, tradeCodes, success: false, error: "Supplier not found" });
+      console.error(`[Email] Supplier not found: ${supplierId}. Total suppliers loaded: ${suppliers.length}`);
+      results.push({ supplier: supplierId, tradeCodes, success: false, error: `Supplier not found (id: ${supplierId}, loaded: ${suppliers.length} suppliers)` });
       continue;
     }
 

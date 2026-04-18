@@ -35,3 +35,4 @@ tsconfig.tsbuildinfo
 
 # Notes & drafts
 *.txt
+.env*.local
