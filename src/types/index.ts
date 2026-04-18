@@ -66,6 +66,7 @@ export interface JobDocument {
   type: "link" | "upload";
   url?: string;
   fileName?: string;
+  storagePath?: string; // Supabase Storage path in project-documents bucket
 }
 
 // Job

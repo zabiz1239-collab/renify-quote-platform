@@ -2,21 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { getEstimators, getTemplates, getJob, saveJob, getSettings } from "@/lib/supabase";
+import { getEstimators, getTemplates, getJob, saveJob } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { renderTemplate, findTemplate, getGroupedTradeCodes, getTradeDisplayName } from "@/lib/templates";
-import { listFolder, downloadFile } from "@/lib/onedrive";
 import type { Supplier } from "@/types";
 
-const MAX_SMTP_SIZE = 20 * 1024 * 1024; // 20MB Hostinger SMTP limit
+const MAX_SMTP_SIZE = 20 * 1024 * 1024; // 20MB
 
-interface AttachmentFile {
+interface DownloadedFile {
   name: string;
-  content: ArrayBuffer;
+  content: Buffer;
   size: number;
 }
 
-// Fetch ALL suppliers with proper pagination — bypasses PostgREST 1000-row cap
+// Fetch ALL suppliers with pagination
 async function fetchAllSuppliers(): Promise<Supplier[]> {
   const PAGE = 1000;
   const all: Record<string, unknown>[] = [];
@@ -76,15 +75,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const accessToken = session.accessToken;
-
   // Load all data
-  const [suppliers, estimators, templates, job, settings] = await Promise.all([
+  const [suppliers, estimators, templates, job] = await Promise.all([
     fetchAllSuppliers(),
     getEstimators(),
     getTemplates(),
     getJob(jobCode),
-    getSettings(),
   ]);
 
   if (!job) {
@@ -96,40 +92,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No estimator found" }, { status: 400 });
   }
 
-  // Collect PDF attachments from OneDrive (best-effort — token may be expired)
-  const rootPath = settings.oneDriveRootPath;
-  const jobFolder = `${job.jobCode} - ${job.address}`;
-  const categoryFolders = ["Plans", "Engineering", "Inclusions", "Colour Selection", "Other"];
-  const attachmentFiles: AttachmentFile[] = [];
+  // Download attachments from Supabase Storage
+  const attachmentFiles: DownloadedFile[] = [];
+  for (const doc of job.documents || []) {
+    if (doc.type !== "upload") continue;
 
-  for (const folder of categoryFolders) {
+    // Use storagePath if available, otherwise construct from jobCode/category/fileName
+    const storagePath = doc.storagePath || `${jobCode}/${doc.category}/${doc.fileName || doc.name}`;
+
     try {
-      const folderPath = `${rootPath}/${jobFolder}/${folder}`;
-      const items = await listFolder(accessToken, folderPath);
-      for (const item of items) {
-        if (item.file && item.name.toLowerCase().endsWith(".pdf")) {
-          const filePath = `${rootPath}/${jobFolder}/${folder}/${item.name}`;
-          const content = await downloadFile(accessToken, filePath);
-          attachmentFiles.push({ name: item.name, content, size: content.byteLength });
-        }
+      const { data, error } = await supabase.storage
+        .from("project-documents")
+        .download(storagePath);
+
+      if (error) {
+        console.error(`[Email] Storage download failed for ${storagePath}:`, error.message);
+        continue;
       }
-    } catch {
-      // Folder missing or token expired — continue without attachments
+
+      const arrayBuffer = await data.arrayBuffer();
+      const buf = Buffer.from(arrayBuffer);
+      attachmentFiles.push({ name: doc.name, content: buf, size: buf.length });
+    } catch (err) {
+      console.error(`[Email] Failed to download ${storagePath}:`, err);
     }
   }
 
   // 20MB SMTP size guard
-  const totalAttachmentSize = attachmentFiles.reduce((sum, f) => sum + f.size, 0);
-  const useAttachments = totalAttachmentSize <= MAX_SMTP_SIZE;
-
-  if (!useAttachments && attachmentFiles.length > 0) {
+  const totalSize = attachmentFiles.reduce((sum, f) => sum + f.size, 0);
+  if (totalSize > MAX_SMTP_SIZE) {
     console.log(JSON.stringify({
       evt: "attachment_size_warning",
       jobCode,
-      totalBytes: totalAttachmentSize,
-      fileCount: attachmentFiles.length,
-      msg: "Attachments exceed 20MB SMTP limit — sending without attachments",
+      totalBytes: totalSize,
+      files: attachmentFiles.map((f) => f.name),
+      msg: "Exceeds 20MB SMTP limit — sending without attachments",
     }));
+    attachmentFiles.length = 0; // clear
   }
 
   // Group selections by supplier
@@ -163,7 +162,6 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Find template
     const template = templateId && templateId !== "auto"
       ? templates.find((t) => t.id === templateId)
       : findTemplate(templates, tradeCodes, "request");
@@ -172,29 +170,21 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Contact name fallback — never send "Hi ,"
+    // Contact name fallback
     const contactName = (supplier.contact || "").trim() || (supplier.company || "").trim() || "team";
     const safeSupplier = { ...supplier, contact: contactName };
 
     const context = { supplier: safeSupplier, job, estimator, tradeCodes };
     const tradeDisplay = getTradeDisplayName(tradeCodes);
     const subject = `Quote Request — ${tradeDisplay} — ${job.address}`;
-    let htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
+    const htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
 
-    // Build attachments for SMTP
-    const emailAttachments = useAttachments && attachmentFiles.length > 0
-      ? attachmentFiles.map((f) => ({
-          name: f.name,
-          contentType: "application/pdf",
-          contentBytes: Buffer.from(f.content).toString("base64"),
-        }))
-      : [];
-
-    if (!useAttachments && attachmentFiles.length > 0) {
-      htmlBody += "<br><br><em>Note: Attachments were too large to include in this email. Plans and specifications will follow separately.</em>";
-    } else if (attachmentFiles.length === 0) {
-      htmlBody += "<br><br><em>Note: Documents will follow separately.</em>";
-    }
+    // Build nodemailer attachments
+    const emailAttachments = attachmentFiles.map((f) => ({
+      name: f.name,
+      contentType: "application/pdf",
+      contentBytes: f.content.toString("base64"),
+    }));
 
     try {
       await sendEmail({
@@ -204,7 +194,7 @@ export async function POST(request: NextRequest) {
         attachments: emailAttachments,
       });
 
-      // Structured log for observability
+      // Structured log
       console.log(JSON.stringify({
         evt: "quote_email_sent",
         jobCode,
@@ -256,11 +246,9 @@ export async function POST(request: NextRequest) {
       results.push({ supplier: supplier.company, tradeCodes, success: false, error: msg });
     }
 
-    // Rate limiting
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  // Save updated job
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
 

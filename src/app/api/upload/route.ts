@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getSettings, getJob, saveJob } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { createFolder, uploadFile } from "@/lib/onedrive";
 import type { JobDocument } from "@/types";
 
 const VALID_CATEGORIES = ["architectural", "engineering", "scope", "colour_selection", "other"] as const;
 type UploadCategory = typeof VALID_CATEGORIES[number];
 
-// Map upload categories to OneDrive folder names
 const CATEGORY_FOLDERS: Record<UploadCategory, string> = {
   architectural: "Plans",
   engineering: "Engineering",
@@ -42,7 +42,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate category
   if (!VALID_CATEGORIES.includes(category as UploadCategory)) {
     return NextResponse.json(
       { error: `Invalid category. Must be one of: ${VALID_CATEGORIES.join(", ")}` },
@@ -50,7 +49,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate PDF
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
     return NextResponse.json(
       { error: "Only PDF files are accepted" },
@@ -61,25 +59,42 @@ export async function POST(request: NextRequest) {
   const accessToken = session.accessToken;
 
   try {
-    const settings = await getSettings();
-    const rootPath = settings.oneDriveRootPath;
-    const jobFolder = `${jobCode} - ${address}`;
-    const categoryFolder = CATEGORY_FOLDERS[category as UploadCategory];
-
-    // Create folder structure if it doesn't exist
-    await createFolder(accessToken, rootPath, jobFolder);
-    await createFolder(accessToken, `${rootPath}/${jobFolder}`, categoryFolder);
-
-    // Upload file
     const buffer = await file.arrayBuffer();
-    await uploadFile(
-      accessToken,
-      `${rootPath}/${jobFolder}/${categoryFolder}`,
-      file.name,
-      buffer
-    );
 
-    // Update job documents in Supabase
+    // 1. Upload to Supabase Storage (primary — always available for email attachments)
+    const storagePath = `${jobCode}/${category}/${file.name}`;
+    const { error: storageErr } = await supabase.storage
+      .from("project-documents")
+      .upload(storagePath, Buffer.from(buffer), {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (storageErr) {
+      console.error("[Upload] Supabase Storage failed:", storageErr);
+      throw new Error(`Storage upload failed: ${storageErr.message}`);
+    }
+
+    // 2. Upload to OneDrive (best-effort — for user browsing)
+    try {
+      const settings = await getSettings();
+      const rootPath = settings.oneDriveRootPath;
+      const jobFolder = `${jobCode} - ${address}`;
+      const categoryFolder = CATEGORY_FOLDERS[category as UploadCategory];
+
+      await createFolder(accessToken, rootPath, jobFolder);
+      await createFolder(accessToken, `${rootPath}/${jobFolder}`, categoryFolder);
+      await uploadFile(
+        accessToken,
+        `${rootPath}/${jobFolder}/${categoryFolder}`,
+        file.name,
+        buffer
+      );
+    } catch (onedriveErr) {
+      console.warn("[Upload] OneDrive upload failed (non-blocking):", onedriveErr);
+    }
+
+    // 3. Update job documents in Supabase
     const job = await getJob(jobCode);
     if (job) {
       const newDoc: JobDocument = {
@@ -87,13 +102,14 @@ export async function POST(request: NextRequest) {
         name: file.name,
         type: "upload",
         fileName: file.name,
+        storagePath,
       };
       job.documents = [...(job.documents || []), newDoc];
       job.updatedAt = new Date().toISOString();
       await saveJob(job);
     }
 
-    return NextResponse.json({ success: true, fileName: file.name });
+    return NextResponse.json({ success: true, fileName: file.name, storagePath });
   } catch (err: unknown) {
     console.error("[Upload] Failed:", err);
     const message = err instanceof Error ? err.message : "Upload failed";
