@@ -12,19 +12,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { GripVertical, Clock, AlertTriangle } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import { getJobs, saveJob } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { toast } from "sonner";
 import type { Job, Quote } from "@/types";
 
-const COLUMNS: { key: Quote["status"]; label: string; color: string }[] = [
-  { key: "not_started", label: "Not Started", color: "bg-gray-100 border-gray-300" },
+type ColumnKey = "requested" | "chase_7" | "chase_14" | "received";
+
+const COLUMNS: { key: ColumnKey; label: string; color: string }[] = [
   { key: "requested", label: "Requested", color: "bg-blue-50 border-blue-300" },
+  { key: "chase_7", label: "7 Day Chase Up", color: "bg-yellow-50 border-yellow-300" },
+  { key: "chase_14", label: "14 Day Chase Up", color: "bg-orange-50 border-orange-300" },
   { key: "received", label: "Received", color: "bg-green-50 border-green-300" },
-  { key: "accepted", label: "Accepted", color: "bg-emerald-50 border-emerald-300" },
-  { key: "declined", label: "Declined", color: "bg-red-50 border-red-300" },
 ];
 
 interface KanbanCard {
@@ -33,9 +34,11 @@ interface KanbanCard {
   supplierId: string;
   supplierName: string;
   status: Quote["status"];
+  column: ColumnKey;
   priceExGST?: number;
   quoteExpiry?: string;
   requestedDate?: string;
+  daysAgo: number;
   followUpCount: number;
 }
 
@@ -47,8 +50,8 @@ export default function KanbanPage() {
   const [selectedJobCode, setSelectedJobCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [draggedCard, setDraggedCard] = useState<KanbanCard | null>(null);
-  const dragOverCol = useRef<Quote["status"] | null>(null);
-  const [highlightCol, setHighlightCol] = useState<Quote["status"] | null>(null);
+  const dragOverCol = useRef<ColumnKey | null>(null);
+  const [highlightCol, setHighlightCol] = useState<ColumnKey | null>(null);
 
   // Touch drag state
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -74,44 +77,56 @@ export default function KanbanPage() {
 
   const selectedJob = jobs.find((j) => j.jobCode === selectedJobCode);
 
-  // Build kanban cards from job trades + quotes
+  // Build kanban cards — only requested and received quotes
   const cards: KanbanCard[] = [];
+  const now = Date.now();
   if (selectedJob) {
     for (const trade of selectedJob.trades || []) {
-      if (trade.quotes && trade.quotes.length > 0) {
-        for (const quote of trade.quotes) {
-          cards.push({
-            tradeCode: trade.code,
-            tradeName: trade.name,
-            supplierId: quote.supplierId,
-            supplierName: quote.supplierName,
-            status: quote.status,
-            priceExGST: quote.priceExGST,
-            quoteExpiry: quote.quoteExpiry,
-            requestedDate: quote.requestedDate,
-            followUpCount: quote.followUpCount,
-          });
+      for (const quote of trade.quotes || []) {
+        if (quote.status !== "requested" && quote.status !== "received" && quote.status !== "accepted") continue;
+
+        const daysAgo = quote.requestedDate
+          ? Math.floor((now - new Date(quote.requestedDate).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
+
+        let column: ColumnKey;
+        if (quote.status === "received" || quote.status === "accepted") {
+          column = "received";
+        } else if (daysAgo >= 14) {
+          column = "chase_14";
+        } else if (daysAgo >= 7) {
+          column = "chase_7";
+        } else {
+          column = "requested";
         }
-      } else {
-        // Trade with no quotes = not started placeholder
+
         cards.push({
           tradeCode: trade.code,
           tradeName: trade.name,
-          supplierId: "",
-          supplierName: "No supplier yet",
-          status: "not_started",
-          followUpCount: 0,
+          supplierId: quote.supplierId,
+          supplierName: quote.supplierName,
+          status: quote.status,
+          column,
+          priceExGST: quote.priceExGST,
+          quoteExpiry: quote.quoteExpiry,
+          requestedDate: quote.requestedDate,
+          daysAgo,
+          followUpCount: quote.followUpCount,
         });
       }
     }
   }
 
-  function getColumnCards(status: Quote["status"]) {
-    return cards.filter((c) => c.status === status);
+  function getColumnCards(col: ColumnKey) {
+    return cards.filter((c) => c.column === col);
   }
 
-  async function moveCard(card: KanbanCard, newStatus: Quote["status"]) {
-    if (!selectedJob || card.status === newStatus) return;
+  async function moveCard(card: KanbanCard, targetCol: ColumnKey) {
+    if (!selectedJob || card.column === targetCol) return;
+
+    // Only "received" column changes the actual status
+    const newStatus: Quote["status"] = targetCol === "received" ? "received" : "requested";
+    if (card.status === newStatus) return;
 
     const updatedJob = { ...selectedJob };
     updatedJob.trades = updatedJob.trades.map((trade) => {
@@ -120,7 +135,11 @@ export default function KanbanPage() {
         ...trade,
         quotes: (trade.quotes || []).map((q) => {
           if (q.supplierId !== card.supplierId) return q;
-          return { ...q, status: newStatus };
+          return {
+            ...q,
+            status: newStatus,
+            ...(newStatus === "received" ? { receivedDate: new Date().toISOString() } : {}),
+          };
         }),
       };
     });
@@ -128,7 +147,7 @@ export default function KanbanPage() {
     try {
       await saveJob(updatedJob);
       setJobs((prev) => prev.map((j) => (j.jobCode === updatedJob.jobCode ? updatedJob : j)));
-      toast.success(`${card.tradeName} → ${newStatus.replace("_", " ")}`);
+      toast.success(`${card.tradeName} → ${targetCol === "received" ? "Received" : "Requested"}`);
     } catch {
       toast.error("Failed to update status");
     }
@@ -139,19 +158,19 @@ export default function KanbanPage() {
     setDraggedCard(card);
   }
 
-  function handleDragOver(e: React.DragEvent, status: Quote["status"]) {
+  function handleDragOver(e: React.DragEvent, col: ColumnKey) {
     e.preventDefault();
-    dragOverCol.current = status;
-    setHighlightCol(status);
+    dragOverCol.current = col;
+    setHighlightCol(col);
   }
 
   function handleDragLeave() {
     setHighlightCol(null);
   }
 
-  function handleDrop(status: Quote["status"]) {
+  function handleDrop(col: ColumnKey) {
     if (draggedCard) {
-      moveCard(draggedCard, status);
+      moveCard(draggedCard, col);
     }
     setDraggedCard(null);
     setHighlightCol(null);
@@ -185,7 +204,7 @@ export default function KanbanPage() {
       columns.forEach((col) => {
         const rect = col.getBoundingClientRect();
         if (touch.clientX >= rect.left && touch.clientX <= rect.right) {
-          setHighlightCol(col.getAttribute("data-kanban-col") as Quote["status"]);
+          setHighlightCol(col.getAttribute("data-kanban-col") as ColumnKey);
         }
       });
     }
@@ -202,17 +221,6 @@ export default function KanbanPage() {
       ghostRef.current.remove();
       ghostRef.current = null;
     }
-  }
-
-  function isExpired(expiry?: string) {
-    if (!expiry) return false;
-    return new Date(expiry) < new Date();
-  }
-
-  function isOverdue(requestedDate?: string) {
-    if (!requestedDate) return false;
-    const days = Math.floor((Date.now() - new Date(requestedDate).getTime()) / (1000 * 60 * 60 * 24));
-    return days >= 7;
   }
 
   const { containerRef, pullDistance, refreshing: ptr } = usePullToRefresh({
@@ -302,12 +310,7 @@ export default function KanbanPage() {
                     </h3>
 
                     <div className="space-y-2">
-                      {colCards.map((card, idx) => {
-                        const expired = isExpired(card.quoteExpiry);
-                        const overdue = col.key === "requested" && isOverdue(card.requestedDate);
-                        const followedUp2x = card.followUpCount >= 2;
-
-                        return (
+                      {colCards.map((card, idx) => (
                           <div
                             key={`${card.tradeCode}-${card.supplierId}-${idx}`}
                             draggable={!!card.supplierId}
@@ -316,47 +319,29 @@ export default function KanbanPage() {
                             onTouchMove={handleTouchMove}
                             onTouchEnd={handleTouchEnd}
                             className={`bg-white rounded-lg border p-3 cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md transition-shadow ${
-                              followedUp2x && col.key === "requested" ? "border-red-400 bg-red-50" : ""
-                            } ${expired ? "border-orange-400" : ""}`}
+                              card.column === "chase_14" ? "border-orange-400" : ""
+                            }`}
                           >
                             <div className="flex items-start gap-2">
                               <GripVertical className="w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">
-                                  {card.tradeName}
-                                </p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {card.supplierName}
-                                </p>
+                                <p className="text-sm font-medium truncate">{card.tradeName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{card.supplierName}</p>
                                 {card.priceExGST && (
                                   <p className="text-sm font-mono font-medium mt-1 text-[#2D5E3A]">
                                     ${card.priceExGST.toLocaleString()}
                                   </p>
                                 )}
-                                <div className="flex gap-1 mt-1 flex-wrap">
-                                  {expired && (
-                                    <Badge className="text-[10px] bg-orange-100 text-orange-800 px-1.5 py-0">
-                                      <AlertTriangle className="w-3 h-3 mr-0.5" />
-                                      Expired
-                                    </Badge>
-                                  )}
-                                  {overdue && (
-                                    <Badge className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0">
-                                      <Clock className="w-3 h-3 mr-0.5" />
-                                      Overdue
-                                    </Badge>
-                                  )}
-                                  {followedUp2x && col.key === "requested" && (
-                                    <Badge className="text-[10px] bg-red-100 text-red-800 px-1.5 py-0">
-                                      2x followed up
-                                    </Badge>
-                                  )}
-                                </div>
+                                {card.status === "requested" && card.daysAgo > 0 && (
+                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                    {card.daysAgo}d ago
+                                    {card.followUpCount > 0 && ` · ${card.followUpCount}x chased`}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </div>
-                        );
-                      })}
+                      ))}
                     </div>
                   </div>
                 );
