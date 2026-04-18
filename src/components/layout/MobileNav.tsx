@@ -13,7 +13,6 @@ import {
   Menu,
   X,
   Mail,
-  BarChart3,
   FileText,
   Users,
   Columns3,
@@ -26,7 +25,6 @@ const navItems = [
   { href: "/suppliers", label: "Suppliers", icon: Truck },
   { href: "/kanban", label: "Quote Board", icon: Columns3 },
   { href: "/quotes", label: "Send Quotes", icon: Mail },
-  { href: "/compare", label: "Compare", icon: BarChart3 },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/estimators", label: "Estimators", icon: Users },
 ];

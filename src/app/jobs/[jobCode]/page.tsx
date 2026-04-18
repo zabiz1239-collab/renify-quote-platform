@@ -469,22 +469,26 @@ export default function JobDetailPage() {
                         </Button>
                       </div>
                     </div>
-                    {/* Show requested quotes with quick "Mark Received" */}
+                    {/* Show requested quotes with clear Received button */}
                     {requestedQuotes.length > 0 && (
-                      <div className="pl-6 pb-2 space-y-1">
+                      <div className="pl-6 pb-3 space-y-2">
                         {requestedQuotes.map((q, qi) => (
-                          <div key={qi} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">
-                              <Clock className="w-3 h-3 inline mr-1 text-blue-500" />
-                              {q.supplierName} — requested
-                            </span>
+                          <div key={qi} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-100">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-medium">{q.supplierName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Requested {q.requestedDate ? new Date(q.requestedDate).toLocaleDateString("en-AU") : ""}
+                                </p>
+                              </div>
+                            </div>
                             <Button
-                              variant="ghost"
                               size="sm"
-                              className="min-h-[28px] text-xs text-[#2D5E3A] hover:bg-[#2D5E3A]/10 px-2"
+                              className="min-h-[44px] px-4 bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                               onClick={() => quickReceive(trade.code, q.supplierId, q.supplierName)}
                             >
-                              <CheckCircle className="w-3 h-3 mr-1" />
+                              <CheckCircle className="w-4 h-4 mr-1" />
                               Received
                             </Button>
                           </div>

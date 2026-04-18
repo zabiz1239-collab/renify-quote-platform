@@ -38,6 +38,7 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Supplier } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
+import { toast } from "sonner";
 
 const DEFAULT_REGIONS = ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"];
 
@@ -130,12 +131,15 @@ export default function SuppliersPage() {
   async function handleSave() {
     setTouched(true);
     if (!form.company || !form.email) return;
+    if (form.trades.length === 0) {
+      toast.error("Please select at least one trade so this supplier shows up when quoting");
+      return;
+    }
     setSaving(true);
     try {
       const sup: Supplier = editingId
         ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined }
         : { id: uuidv4(), ...form, abn: form.abn || undefined };
-      console.log("[Supplier Save]", { trades: sup.trades, regions: sup.regions, company: sup.company });
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -143,8 +147,10 @@ export default function SuppliersPage() {
         setSuppliers((prev) => [...prev, sup]);
       }
       setDialogOpen(false);
+      toast.success(editingId ? "Supplier updated" : "Supplier added");
     } catch (err) {
       console.error("Failed to save supplier:", err);
+      toast.error("Failed to save supplier");
     } finally {
       setSaving(false);
     }
@@ -596,8 +602,9 @@ export default function SuppliersPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Trades</Label>
-                    <div className="grid grid-cols-2 gap-1 max-h-48 overflow-y-auto border rounded-lg p-2">
+                    <Label>Trades * <span className="text-xs font-normal text-muted-foreground">({form.trades.length} selected)</span></Label>
+                    {touched && form.trades.length === 0 && <p className="text-xs text-red-500">Select at least one trade</p>}
+                    <div className={`grid grid-cols-2 gap-1 max-h-48 overflow-y-auto border rounded-lg p-2 ${touched && form.trades.length === 0 ? "border-red-500" : ""}`}>
                       {TRADES.filter((t) => t.quotable).map((trade) => (
                         <label
                           key={trade.code}
