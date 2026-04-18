@@ -120,6 +120,29 @@ export default function JobDetailPage() {
     }
   }
 
+  async function quickReceive(tradeCode: string, supplierId: string, supplierName: string) {
+    if (!job) return;
+    const updatedTrades = (job.trades || []).map((t) => {
+      if (t.code !== tradeCode) return t;
+      return {
+        ...t,
+        quotes: (t.quotes || []).map((q) =>
+          q.supplierId === supplierId
+            ? { ...q, status: "received" as const, receivedDate: new Date().toISOString() }
+            : q
+        ),
+      };
+    });
+    const updatedJob: Job = { ...job, trades: updatedTrades, updatedAt: new Date().toISOString() };
+    try {
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      toast.success(`${supplierName} marked as received`);
+    } catch {
+      toast.error("Failed to update");
+    }
+  }
+
   function openReceive(tradeCode: string) {
     setReceiveTradeCode(tradeCode);
     setReceiveSupplierId("");
@@ -413,35 +436,61 @@ export default function JobDetailPage() {
                 const latestStatus = bestQuote?.status ||
                   trade.quotes?.[trade.quotes.length - 1]?.status || "not_started";
 
+                const requestedQuotes = (trade.quotes || []).filter((q) => q.status === "requested");
+
                 return (
-                  <div key={trade.code} className="flex items-center justify-between py-2 border-b last:border-b-0">
-                    <div className="flex items-center gap-2">
-                      {QUOTE_STATUS_ICON[latestStatus] || QUOTE_STATUS_ICON.not_started}
-                      <span className="text-sm">
-                        <span className="text-muted-foreground">{trade.code}</span>{" "}
-                        {trade.name}
-                      </span>
+                  <div key={trade.code} className="border-b last:border-b-0">
+                    <div className="flex items-center justify-between py-2">
+                      <div className="flex items-center gap-2">
+                        {QUOTE_STATUS_ICON[latestStatus] || QUOTE_STATUS_ICON.not_started}
+                        <span className="text-sm">
+                          <span className="text-muted-foreground">{trade.code}</span>{" "}
+                          {trade.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {bestQuote?.priceExGST && (
+                          <span className="text-sm font-mono">${bestQuote.priceExGST.toLocaleString()}</span>
+                        )}
+                        <Badge variant="secondary" className="text-xs capitalize">
+                          {latestStatus.replace("_", " ")}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {trade.quotes?.length || 0} quote{(trade.quotes?.length || 0) !== 1 ? "s" : ""}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-[36px] text-xs border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
+                          onClick={() => openReceive(trade.code)}
+                        >
+                          <FileInput className="w-3 h-3 mr-1" />
+                          Receive
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {bestQuote?.priceExGST && (
-                        <span className="text-sm font-mono">${bestQuote.priceExGST.toLocaleString()}</span>
-                      )}
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {latestStatus.replace("_", " ")}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {trade.quotes?.length || 0} quote{(trade.quotes?.length || 0) !== 1 ? "s" : ""}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="min-h-[36px] text-xs border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
-                        onClick={() => openReceive(trade.code)}
-                      >
-                        <FileInput className="w-3 h-3 mr-1" />
-                        Receive
-                      </Button>
-                    </div>
+                    {/* Show requested quotes with quick "Mark Received" */}
+                    {requestedQuotes.length > 0 && (
+                      <div className="pl-6 pb-2 space-y-1">
+                        {requestedQuotes.map((q, qi) => (
+                          <div key={qi} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">
+                              <Clock className="w-3 h-3 inline mr-1 text-blue-500" />
+                              {q.supplierName} — requested
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="min-h-[28px] text-xs text-[#2D5E3A] hover:bg-[#2D5E3A]/10 px-2"
+                              onClick={() => quickReceive(trade.code, q.supplierId, q.supplierName)}
+                            >
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Received
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
