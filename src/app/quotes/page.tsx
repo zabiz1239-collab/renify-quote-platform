@@ -1,10 +1,12 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,8 +23,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Send, AlertTriangle, Check, Loader2, Mail } from "lucide-react";
+import { Send, AlertTriangle, Check, Loader2, Mail, FileInput, Search } from "lucide-react";
 import { getJobs, getSuppliers } from "@/lib/supabase";
+import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job, Supplier } from "@/types";
 import { toast } from "sonner";
@@ -41,8 +44,9 @@ export default function SendQuotesPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJobCode, setSelectedJobCode] = useState("");
-  const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
-  const [checkedSuppliers, setCheckedSuppliers] = useState<Map<string, Set<string>>>(new Map());
+  const [selectedTradeCode, setSelectedTradeCode] = useState("");
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [checkedSuppliers, setCheckedSuppliers] = useState<Set<string>>(new Set());
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -67,95 +71,49 @@ export default function SendQuotesPage() {
 
   const activeJobs = jobs.filter((j) => j.status === "active" || j.status === "quoting");
   const selectedJob = jobs.find((j) => j.jobCode === selectedJobCode);
+  const tradeMeta = TRADES.find((t) => t.code === selectedTradeCode);
 
-  // Count files per category for the summary card
-  function getFileCounts(job: Job) {
-    const counts: Record<string, number> = {};
-    for (const doc of job.documents || []) {
-      counts[doc.category] = (counts[doc.category] || 0) + 1;
-    }
-    return counts;
-  }
+  // Get all suppliers for the selected trade (no region filter — show everything)
+  const tradeSuppliers = useMemo(() => {
+    if (!selectedTradeCode) return [];
+    return suppliers.filter((s) => s.trades.includes(selectedTradeCode));
+  }, [suppliers, selectedTradeCode]);
 
-  // Get suppliers matching a trade for the selected job
-  function getSuppliersForTrade(tradeCode: string): Supplier[] {
-    if (!selectedJob) return [];
-    return suppliers.filter((s) => {
-      if (!s.trades.includes(tradeCode)) return false;
-      // If job has region set, filter by region; otherwise show all
-      if (selectedJob.region && selectedJob.region.trim() !== "") {
-        return s.regions.includes(selectedJob.region);
-      }
-      return true;
-    });
-  }
+  // Filter by search term
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearch.trim()) return tradeSuppliers;
+    const term = supplierSearch.toLowerCase();
+    return tradeSuppliers.filter(
+      (s) =>
+        s.company.toLowerCase().includes(term) ||
+        s.email.toLowerCase().includes(term) ||
+        s.phone.includes(term)
+    );
+  }, [tradeSuppliers, supplierSearch]);
 
-  function toggleTrade(code: string) {
-    setSelectedTrades((prev) => {
+  function toggleSupplier(id: string) {
+    setCheckedSuppliers((prev) => {
       const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
-        // Also uncheck suppliers for this trade
-        setCheckedSuppliers((prevMap) => {
-          const nextMap = new Map(prevMap);
-          nextMap.delete(code);
-          return nextMap;
-        });
-      } else {
-        next.add(code);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
-  function toggleSupplier(tradeCode: string, supplierId: string) {
-    setCheckedSuppliers((prev) => {
-      const next = new Map(prev);
-      const set = new Set(next.get(tradeCode) || []);
-      if (set.has(supplierId)) set.delete(supplierId);
-      else set.add(supplierId);
-      next.set(tradeCode, set);
-      return next;
-    });
+  function selectAll() {
+    setCheckedSuppliers(new Set(filteredSuppliers.map((s) => s.id)));
   }
 
-  function selectAllForTrade(tradeCode: string) {
-    const tradeSuppliers = getSuppliersForTrade(tradeCode);
-    setCheckedSuppliers((prev) => {
-      const next = new Map(prev);
-      next.set(tradeCode, new Set(tradeSuppliers.map((s) => s.id)));
-      return next;
-    });
+  function selectNone() {
+    setCheckedSuppliers(new Set());
   }
 
-  function selectNoneForTrade(tradeCode: string) {
-    setCheckedSuppliers((prev) => {
-      const next = new Map(prev);
-      next.set(tradeCode, new Set());
-      return next;
-    });
-  }
-
-  // Build selections for the API
   function buildSelections(): Selection[] {
-    const supplierMap = new Map<string, string[]>();
-    for (const [tradeCode, supplierIds] of Array.from(checkedSuppliers.entries())) {
-      for (const sid of Array.from(supplierIds)) {
-        const existing = supplierMap.get(sid) || [];
-        if (!existing.includes(tradeCode)) existing.push(tradeCode);
-        supplierMap.set(sid, existing);
-      }
-    }
-    return Array.from(supplierMap.entries()).map(([supplierId, tradeCodes]) => ({
+    return Array.from(checkedSuppliers).map((supplierId) => ({
       supplierId,
-      tradeCodes,
+      tradeCodes: [selectedTradeCode],
     }));
   }
-
-  const totalChecked = Array.from(checkedSuppliers.values()).reduce(
-    (acc, set) => acc + set.size,
-    0
-  );
 
   async function handleSend() {
     if (!selectedJob) return;
@@ -180,6 +138,15 @@ export default function SendQuotesPage() {
     }
   }
 
+  // File counts for summary
+  function getFileCounts(job: Job) {
+    const counts: Record<string, number> = {};
+    for (const doc of job.documents || []) {
+      counts[doc.category] = (counts[doc.category] || 0) + 1;
+    }
+    return counts;
+  }
+
   if (loading) {
     return (
       <AuthLayout>
@@ -191,20 +158,27 @@ export default function SendQuotesPage() {
   return (
     <AuthLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold">Send Quotes</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Send Quotes</h1>
+          <Link href="/quotes/intake">
+            <Button variant="outline" className="min-h-[44px]">
+              <FileInput className="w-4 h-4 mr-2" />
+              Receive Quote
+            </Button>
+          </Link>
+        </div>
 
         {/* Step 1: Job Picker */}
         <Card>
-          <CardHeader>
-            <CardTitle>1. Select Job</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>1. Select Job</CardTitle></CardHeader>
           <CardContent>
             <Select
               value={selectedJobCode}
               onValueChange={(v) => {
                 setSelectedJobCode(v);
-                setSelectedTrades(new Set());
-                setCheckedSuppliers(new Map());
+                setSelectedTradeCode("");
+                setCheckedSuppliers(new Set());
+                setSupplierSearch("");
               }}
             >
               <SelectTrigger className="min-h-[44px]">
@@ -270,122 +244,129 @@ export default function SendQuotesPage() {
           );
         })()}
 
-        {/* Step 2: Trade Chips */}
+        {/* Step 2: Trade Dropdown */}
         {selectedJob && (selectedJob.trades || []).length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle>2. Select Trades</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>2. Select Trade</CardTitle></CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {(selectedJob.trades || []).map((trade) => (
-                  <button
-                    key={trade.code}
-                    onClick={() => toggleTrade(trade.code)}
-                    className={`px-3 py-2 rounded-lg border text-sm font-medium min-h-[44px] transition-colors ${
-                      selectedTrades.has(trade.code)
-                        ? "bg-[#2D5E3A] text-white border-[#2D5E3A]"
-                        : "bg-background hover:bg-muted border-border"
-                    }`}
-                  >
-                    {trade.code} {trade.name}
-                  </button>
-                ))}
-              </div>
+              <Select
+                value={selectedTradeCode}
+                onValueChange={(v) => {
+                  setSelectedTradeCode(v);
+                  setCheckedSuppliers(new Set());
+                  setSupplierSearch("");
+                }}
+              >
+                <SelectTrigger className="min-h-[44px]">
+                  <SelectValue placeholder="Choose a trade..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedJob.trades || []).map((trade) => {
+                    const supplierCount = suppliers.filter((s) => s.trades.includes(trade.code)).length;
+                    return (
+                      <SelectItem key={trade.code} value={trade.code}>
+                        {trade.code} {trade.name} ({supplierCount} suppliers)
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </CardContent>
           </Card>
         )}
 
-        {/* Step 3: Supplier Panels */}
-        {selectedJob && selectedTrades.size > 0 && (
+        {/* Step 3: Supplier List with Search */}
+        {selectedTradeCode && (
           <Card>
             <CardHeader>
-              <CardTitle>3. Select Suppliers</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>
+                  3. Select Suppliers — {tradeMeta?.name || selectedTradeCode}
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    ({tradeSuppliers.length} total, {checkedSuppliers.size} selected)
+                  </span>
+                </CardTitle>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {Array.from(selectedTrades).map((tradeCode) => {
-                const trade = (selectedJob.trades || []).find((t) => t.code === tradeCode);
-                const tradeSuppliers = getSuppliersForTrade(tradeCode);
-                const checkedSet = checkedSuppliers.get(tradeCode) || new Set<string>();
-                return (
-                  <div key={tradeCode} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold">
-                        {tradeCode} {trade?.name || tradeCode}
-                        <span className="ml-2 text-muted-foreground font-normal">
-                          ({tradeSuppliers.length} supplier{tradeSuppliers.length !== 1 ? "s" : ""})
-                        </span>
-                      </h3>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => selectAllForTrade(tradeCode)}
-                          className="text-xs text-[#2D5E3A] hover:underline min-h-[44px] px-2"
-                        >
-                          Select all
-                        </button>
-                        <button
-                          onClick={() => selectNoneForTrade(tradeCode)}
-                          className="text-xs text-muted-foreground hover:underline min-h-[44px] px-2"
-                        >
-                          Select none
-                        </button>
+            <CardContent className="space-y-4">
+              {/* Search + bulk actions */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search suppliers..."
+                    value={supplierSearch}
+                    onChange={(e) => setSupplierSearch(e.target.value)}
+                    className="pl-9 min-h-[44px]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={selectAll} className="min-h-[44px]">
+                    Select all ({filteredSuppliers.length})
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={selectNone} className="min-h-[44px]">
+                    Clear
+                  </Button>
+                </div>
+              </div>
+
+              {/* Supplier list */}
+              {filteredSuppliers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  {supplierSearch
+                    ? "No suppliers match your search."
+                    : "No suppliers found for this trade. Add some on the Suppliers page."}
+                </p>
+              ) : (
+                <div className="border rounded-lg divide-y max-h-[400px] overflow-y-auto">
+                  {filteredSuppliers.map((sup) => (
+                    <label
+                      key={sup.id}
+                      className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checkedSuppliers.has(sup.id)}
+                        onChange={() => toggleSupplier(sup.id)}
+                        className="w-4 h-4 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{sup.company}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {sup.email || "No email"}
+                          {sup.phone && ` · ${sup.phone}`}
+                          {sup.regions.length > 0 && ` · ${sup.regions.join(", ")}`}
+                        </p>
                       </div>
-                    </div>
-                    {tradeSuppliers.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-2">
-                        No suppliers match this trade{selectedJob.region ? ` in ${selectedJob.region}` : ""}.
-                      </p>
-                    ) : (
-                      <div className="border rounded-lg divide-y">
-                        {tradeSuppliers.map((sup) => (
-                          <label
-                            key={sup.id}
-                            className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px]"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checkedSet.has(sup.id)}
-                              onChange={() => toggleSupplier(tradeCode, sup.id)}
-                              className="w-4 h-4"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium">{sup.company}</p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {sup.email || "No email"}{sup.phone && ` · ${sup.phone}`}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="secondary"
-                              className={`text-xs ${
-                                sup.status === "verified"
-                                  ? "bg-green-100 text-green-800"
-                                  : sup.status === "blacklisted"
-                                  ? "bg-red-100 text-red-800"
-                                  : ""
-                              }`}
-                            >
-                              {sup.status}
-                            </Badge>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      <Badge
+                        variant="secondary"
+                        className={`text-xs flex-shrink-0 ${
+                          sup.status === "verified"
+                            ? "bg-green-100 text-green-800"
+                            : sup.status === "blacklisted"
+                            ? "bg-red-100 text-red-800"
+                            : ""
+                        }`}
+                      >
+                        {sup.status}
+                      </Badge>
+                    </label>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* Sticky Preview & Send Button */}
-        {totalChecked > 0 && (
-          <div className="sticky bottom-4 z-10">
+        {/* Sticky action buttons */}
+        {checkedSuppliers.size > 0 && (
+          <div className="sticky bottom-4 z-10 flex gap-3">
             <Button
               onClick={() => setPreviewOpen(true)}
-              className="w-full min-h-[52px] text-base shadow-lg bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+              className="flex-1 min-h-[52px] text-base shadow-lg bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
             >
               <Send className="w-5 h-5 mr-2" />
-              Preview & Send ({totalChecked} supplier{totalChecked !== 1 ? "s" : ""})
+              Preview & Send ({checkedSuppliers.size} supplier{checkedSuppliers.size !== 1 ? "s" : ""})
             </Button>
           </div>
         )}
@@ -394,34 +375,29 @@ export default function SendQuotesPage() {
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Confirm Send</DialogTitle>
+              <DialogTitle>Confirm Send — {tradeMeta?.name || selectedTradeCode}</DialogTitle>
               <DialogDescription>
-                Review the quote requests before sending.
+                {selectedJob?.jobCode} — {selectedJob?.address}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-4">
-              {buildSelections().map((sel) => {
-                const sup = suppliers.find((s) => s.id === sel.supplierId);
-                const tradeNames = sel.tradeCodes.map((code) => {
-                  const t = (selectedJob?.trades || []).find((tr) => tr.code === code);
-                  return t?.name || code;
-                });
-                return (
-                  <div key={sel.supplierId} className="flex items-center gap-3 p-3 border rounded-lg">
-                    <Mail className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{sup?.company || "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground">{sup?.email || "No email"}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Trades: {tradeNames.join(", ")}
-                      </p>
+              <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
+                {buildSelections().map((sel) => {
+                  const sup = suppliers.find((s) => s.id === sel.supplierId);
+                  return (
+                    <div key={sel.supplierId} className="flex items-center gap-3 p-3">
+                      <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{sup?.company || "Unknown"}</p>
+                        <p className="text-xs text-muted-foreground">{sup?.email || "No email"}</p>
+                      </div>
+                      <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                     </div>
-                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
               <p className="text-sm text-muted-foreground">
-                Total: {buildSelections().length} email{buildSelections().length !== 1 ? "s" : ""} will be sent
+                {buildSelections().length} email{buildSelections().length !== 1 ? "s" : ""} will be sent for {tradeMeta?.name || selectedTradeCode}
               </p>
               <div className="flex gap-2 pt-2">
                 <Button
