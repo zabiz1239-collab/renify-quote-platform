@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Save, Plus, X, AlertTriangle, Loader2 } from "lucide-react";
+import { Save, Plus, X, AlertTriangle, Loader2, Download, Trash2, Database } from "lucide-react";
 import { toast } from "sonner";
 import { getSettings as fetchSettings, saveSettings as saveSettingsToDb, getJobs } from "@/lib/supabase";
 import { FolderPicker } from "@/components/ui/folder-picker";
@@ -48,6 +48,8 @@ export default function SettingsPage() {
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [conflicts, setConflicts] = useState<ConflictEntry[]>([]);
   const [showTradeMarkups, setShowTradeMarkups] = useState(false);
+  const [backups, setBackups] = useState<{id: string; created_at: string; label: string; size_estimate: number}[]>([]);
+  const [backingUp, setBackingUp] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -58,8 +60,9 @@ export default function SettingsPage() {
     try {
       const data = await fetchSettings();
       setSettings({ ...DEFAULT_SETTINGS, ...data });
-      // Load conflicts from all jobs
+      // Load conflicts and backups
       loadConflicts();
+      loadBackups();
     } catch {
       // Use defaults
     } finally {
@@ -92,6 +95,14 @@ export default function SettingsPage() {
     } catch {
       // Conflicts loading is best-effort
     }
+  }
+
+  async function loadBackups() {
+    try {
+      const res = await fetch("/api/backup");
+      const data = await res.json();
+      setBackups(data.backups || []);
+    } catch { /* best effort */ }
   }
 
   function getTradeMarkup(tradeCode: string): number {
@@ -381,6 +392,70 @@ export default function SettingsPage() {
           )}
         </Card>
 
+        {/* Custom Categories */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Custom Trade Categories</CardTitle>
+            <CardDescription>Add your own trade categories beyond the standard Databuild list.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Code (e.g. C01)"
+                id="customCode"
+                className="min-h-[44px] w-24"
+              />
+              <Input
+                placeholder="Category name (e.g. POOL FENCING)"
+                id="customName"
+                className="min-h-[44px] flex-1"
+              />
+              <Button
+                variant="outline"
+                className="min-h-[44px]"
+                onClick={() => {
+                  const codeEl = document.getElementById("customCode") as HTMLInputElement;
+                  const nameEl = document.getElementById("customName") as HTMLInputElement;
+                  const code = codeEl?.value.trim().toUpperCase();
+                  const name = nameEl?.value.trim().toUpperCase();
+                  if (!code || !name) { toast.error("Enter both code and name"); return; }
+                  const existing = settings.customTrades || [];
+                  if (existing.some((t) => t.code === code)) { toast.error("Code already exists"); return; }
+                  setSettings((p) => ({ ...p, customTrades: [...existing, { code, name }] }));
+                  if (codeEl) codeEl.value = "";
+                  if (nameEl) nameEl.value = "";
+                  toast.success("Added — save settings to persist");
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1" /> Add
+              </Button>
+            </div>
+            {(settings.customTrades || []).length > 0 && (
+              <div className="border rounded-lg divide-y">
+                {(settings.customTrades || []).map((t) => (
+                  <div key={t.code} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span><span className="text-muted-foreground">{t.code}</span> {t.name}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive min-h-[36px]"
+                      onClick={() => {
+                        setSettings((p) => ({
+                          ...p,
+                          customTrades: (p.customTrades || []).filter((ct) => ct.code !== t.code),
+                        }));
+                        toast.success("Removed — save settings to persist");
+                      }}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -432,7 +507,7 @@ export default function SettingsPage() {
 
         <Separator />
 
-        <div className="flex justify-end pb-8">
+        <div className="flex justify-end pb-4">
           <Button
             onClick={handleSave}
             disabled={saving}
@@ -442,6 +517,97 @@ export default function SettingsPage() {
             {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
+
+        <Separator />
+
+        {/* Backups */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Data Backups
+            </CardTitle>
+            <CardDescription>
+              Backup all your data (jobs, suppliers, estimators, templates, settings). Backups are kept for 14 days.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              onClick={async () => {
+                setBackingUp(true);
+                try {
+                  const res = await fetch("/api/backup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ label: "Manual backup " + new Date().toLocaleDateString("en-AU") }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error);
+                  toast.success("Backup created: " + data.jobs + " jobs, " + data.suppliers + " suppliers (" + data.sizeKB + " KB)");
+                  loadBackups();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Backup failed");
+                } finally {
+                  setBackingUp(false);
+                }
+              }}
+              disabled={backingUp}
+              className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+            >
+              {backingUp ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
+              {backingUp ? "Backing up..." : "Create Backup Now"}
+            </Button>
+
+            {backups.length > 0 && (
+              <div className="border rounded-lg divide-y">
+                {backups.map((b) => (
+                  <div key={b.id} className="flex items-center justify-between p-3 text-sm">
+                    <div>
+                      <p className="font-medium">{b.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(b.created_at).toLocaleString("en-AU")} — {Math.round((b.size_estimate || 0) / 1024)} KB
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-[36px]"
+                        onClick={async () => {
+                          const res = await fetch("/api/backup?id=" + b.id);
+                          const data = await res.json();
+                          const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: "application/json" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = "renify-backup-" + new Date(b.created_at).toISOString().split("T")[0] + ".json";
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                      >
+                        <Download className="w-3 h-3 mr-1" /> Download
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="min-h-[36px] text-destructive"
+                        onClick={async () => {
+                          if (!confirm("Delete this backup?")) return;
+                          await fetch("/api/backup?id=" + b.id, { method: "DELETE" });
+                          loadBackups();
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="pb-8" />
       </div>
 
       <FolderPicker

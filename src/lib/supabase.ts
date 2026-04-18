@@ -27,6 +27,7 @@ export async function getSettings(): Promise<AppSettings> {
     quoteExpiryWarningDays: data.expiry_warning_days,
     defaultMarkupPercent: Number(data.default_markup),
     tradeMarkupPercents: data.trade_markup_percents || {},
+    customTrades: data.custom_trades || [],
     adminEmail: data.admin_email,
   };
 }
@@ -41,6 +42,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     expiry_warning_days: settings.quoteExpiryWarningDays,
     default_markup: settings.defaultMarkupPercent,
     trade_markup_percents: settings.tradeMarkupPercents || {},
+    custom_trades: settings.customTrades || [],
     admin_email: settings.adminEmail,
     updated_at: new Date().toISOString(),
   };

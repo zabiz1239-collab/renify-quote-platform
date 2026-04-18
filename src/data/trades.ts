@@ -70,6 +70,15 @@ export const TRADES = [
 
 export type TradeCode = typeof TRADES[number]["code"];
 
+// Merge custom trades from settings into the TRADES list
+export function getAllTrades(customTrades?: { code: string; name: string }[]): { code: string; name: string; quotable: boolean; group?: string; searchQuery?: string }[] {
+  if (!customTrades || customTrades.length === 0) return [...TRADES];
+  const custom = customTrades
+    .filter((ct) => !TRADES.some((t) => t.code === ct.code))
+    .map((ct) => ({ code: ct.code, name: ct.name, quotable: true }));
+  return [...TRADES, ...custom];
+}
+
 export const TRADE_GROUPS: Record<string, string[]> = {
     concrete: ["110", "115"],
     frame: ["145", "150", "155", "190"],

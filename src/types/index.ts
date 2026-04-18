@@ -120,5 +120,6 @@ export interface AppSettings {
   quoteExpiryWarningDays: number[];
   defaultMarkupPercent: number;
   tradeMarkupPercents?: Record<string, number>; // Per-trade markup overrides
+  customTrades?: { code: string; name: string }[]; // User-defined trade categories
   adminEmail: string;
 }
