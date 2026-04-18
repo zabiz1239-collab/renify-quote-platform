@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job } from "@/types";
 import Link from "next/link";
-import { ChevronRight, ChevronDown, Search, AlertTriangle } from "lucide-react";
+import { ChevronRight, ChevronDown, Search, AlertTriangle, Upload, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 
 const TRADE_CATEGORY_ORDER = [
   { key: "siteworks", label: "Siteworks", range: [15, 100] },
@@ -84,6 +85,79 @@ export default function NewJobPage() {
   );
   const [tradeSearch, setTradeSearch] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  function handleExcelUpload(file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        // Parse the Client_Info format
+        let clientName = "";
+        let clientPhone = "";
+        let clientEmail = "";
+        let landAddress = "";
+        let lotNo = "";
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i] as string[];
+          if (!row || row.length === 0) continue;
+
+          const label = String(row[0] || "").trim();
+
+          // Owner section
+          if (label === "Name/s" && row[1]) clientName = String(row[1]).trim();
+          if (label === "Telephone" && row[1] && !clientPhone) {
+            // Only take owner phone, not builder phone
+            const section = rows.slice(0, i).reverse().find((r) => {
+              const s = String((r as string[])[0] || "");
+              return s.includes("OWNER") || s.includes("BUILDER");
+            });
+            if (section && String((section as string[])[0]).includes("OWNER")) {
+              clientPhone = String(row[1]).trim();
+            }
+          }
+          if (label === "Facsimile" && row[3]) {
+            // Email is in column D (index 3) on the Facsimile row
+            const section = rows.slice(0, i).reverse().find((r) => {
+              const s = String((r as string[])[0] || "");
+              return s.includes("OWNER") || s.includes("BUILDER");
+            });
+            if (section && String((section as string[])[0]).includes("OWNER")) {
+              clientEmail = String(row[3]).trim();
+            }
+          }
+
+          // Land section
+          if (label === "Land Address" && row[1]) landAddress = String(row[1]).trim();
+          if (label === "Lot No" && row[1]) lotNo = String(row[1]).trim();
+        }
+
+        const jobCode = lotNo ? `LOT${lotNo}` : "";
+
+        setForm((prev) => ({
+          ...prev,
+          jobCode: jobCode || prev.jobCode,
+          address: landAddress || prev.address,
+          clientName: clientName || prev.clientName,
+          clientPhone: clientPhone || prev.clientPhone,
+          clientEmail: clientEmail || prev.clientEmail,
+          region: landAddress.toLowerCase().includes("bonnie brook") || landAddress.toLowerCase().includes("melton") || landAddress.toLowerCase().includes("taylors") ? "Western" : prev.region,
+          buildType: prev.buildType || "Renovation",
+          storeys: prev.storeys || "Single",
+        }));
+
+        toast.success(`Imported from ${file.name}`);
+      } catch (err) {
+        console.error("Excel parse error:", err);
+        toast.error("Failed to read Excel file");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -219,6 +293,38 @@ export default function NewJobPage() {
           <span className="text-foreground font-medium">New Job</span>
         </nav>
         <h1 className="text-2xl font-bold">Create New Job</h1>
+
+        {/* Upload Excel to pre-fill */}
+        <Card className="border-dashed border-2 border-[#2D5E3A]/30">
+          <CardContent className="pt-6">
+            <label className="flex flex-col items-center justify-center gap-3 cursor-pointer py-4">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleExcelUpload(file);
+                  e.target.value = "";
+                }}
+              />
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet className="w-8 h-8 text-[#2D5E3A]" />
+                <div>
+                  <p className="text-sm font-medium">Upload Client Info Excel</p>
+                  <p className="text-xs text-muted-foreground">Drop a Client_Info.xlsx file to auto-fill job details</p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" className="min-h-[44px]" onClick={(e) => {
+                e.preventDefault();
+                (e.currentTarget.closest("label")?.querySelector("input") as HTMLInputElement)?.click();
+              }}>
+                <Upload className="w-4 h-4 mr-2" />
+                Choose File
+              </Button>
+            </label>
+          </CardContent>
+        </Card>
 
         {authWarning && (
           <div className="flex items-start gap-2 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
