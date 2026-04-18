@@ -131,7 +131,16 @@ export default function SendQuotesPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Send failed");
-      toast.success(`Sent ${data.sent} email${data.sent !== 1 ? "s" : ""}${data.failed ? `, ${data.failed} failed` : ""}`);
+      if (data.failed > 0) {
+        const failedDetails = (data.results || [])
+          .filter((r: { success: boolean; error?: string }) => !r.success)
+          .map((r: { supplier: string; error?: string }) => `${r.supplier}: ${r.error}`)
+          .join(", ");
+        toast.error(`${data.failed} failed: ${failedDetails}`);
+      }
+      if (data.sent > 0) {
+        toast.success(`Sent ${data.sent} email${data.sent !== 1 ? "s" : ""}`);
+      }
       setPreviewOpen(false);
       router.push(`/jobs/${encodeURIComponent(selectedJob.jobCode)}`);
     } catch (err) {

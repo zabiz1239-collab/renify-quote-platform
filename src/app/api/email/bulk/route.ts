@@ -152,12 +152,16 @@ export async function POST(request: NextRequest) {
           }))
         : [];
 
+      console.log(`[Email] Sending to ${supplier.email} for ${tradeDisplay} (${supplier.company})`);
+
       await sendEmail({
         to: [supplier.email],
         subject,
         htmlBody,
         attachments: emailAttachments,
       });
+
+      console.log(`[Email] Success: ${supplier.email}`);
 
       // Update quote status for each trade
       for (const tradeCode of tradeCodes) {
@@ -185,6 +189,7 @@ export async function POST(request: NextRequest) {
       results.push({ supplier: supplier.company, tradeCodes, success: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Send failed";
+      console.error(`[Email] FAILED for ${supplier.email}:`, msg, err);
       results.push({ supplier: supplier.company, tradeCodes, success: false, error: msg });
     }
 
