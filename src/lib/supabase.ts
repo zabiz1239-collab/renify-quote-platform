@@ -92,7 +92,7 @@ export async function deleteEstimator(id: string): Promise<void> {
 
 export async function getSuppliers(): Promise<Supplier[]> {
   // Paginate to get ALL suppliers — Supabase caps at 1000 per request
-  const PAGE_SIZE = 1000;
+  const PAGE_SIZE = 5000;
   const allRows: Record<string, unknown>[] = [];
   let from = 0;
   let hasMore = true;
