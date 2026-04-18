@@ -1,38 +1,69 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/email";
+import { getSuppliers, getTemplates, getJob, getEstimators } from "@/lib/supabase";
+import { renderTemplate, findTemplate, getTradeDisplayName } from "@/lib/templates";
 
 export async function GET() {
-  // Log env vars (redacted) to verify they're loaded
-  const smtpHost = process.env.SMTP_HOST || "(not set)";
-  const smtpPort = process.env.SMTP_PORT || "(not set)";
-  const smtpUser = process.env.SMTP_USER || "(not set)";
-  const smtpPass = process.env.SMTP_PASS ? `***${process.env.SMTP_PASS.slice(-3)}` : "(not set)";
-
-  const envInfo = { smtpHost, smtpPort, smtpUser, smtpPass };
+  const steps: string[] = [];
 
   try {
+    // 1. Load data
+    const [suppliers, templates, job, estimators] = await Promise.all([
+      getSuppliers(),
+      getTemplates(),
+      getJob("LOT112"),
+      getEstimators(),
+    ]);
+
+    steps.push("Data loaded: " + suppliers.length + " suppliers, " + templates.length + " templates");
+
+    if (!job) return NextResponse.json({ error: "Job LOT112 not found", steps });
+
+    // 2. Find test supplier
+    const supplier = suppliers.find((s) => s.email.toLowerCase() === "zabi@renify.com.au" && s.trades.includes("025"));
+    if (!supplier) {
+      // Show what we do have
+      const tempFenceSuppliers = suppliers.filter((s) => s.trades.includes("025"));
+      return NextResponse.json({
+        error: "No supplier with email zabi@renify.com.au and trade 025 found",
+        tempFenceSupplierCount: tempFenceSuppliers.length,
+        tempFenceSuppliers: tempFenceSuppliers.map((s) => ({ company: s.company, email: s.email, id: s.id })),
+        steps,
+      });
+    }
+    steps.push("Supplier: " + supplier.company + " (" + supplier.id + ")");
+
+    // 3. Find estimator
+    const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
+    if (!estimator) return NextResponse.json({ error: "No estimator", steps });
+    steps.push("Estimator: " + estimator.name);
+
+    // 4. Find template
+    const template = findTemplate(templates, ["025"], "request");
+    if (!template) return NextResponse.json({ error: "No template found for trade 025", steps });
+    steps.push("Template: " + template.name);
+
+    // 5. Render
+    const context = { supplier, job, estimator, tradeCodes: ["025"] };
+    const tradeDisplay = getTradeDisplayName(["025"]);
+    const subject = "Quote Request — " + tradeDisplay + " — " + job.address;
+    const htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
+    steps.push("Rendered subject: " + subject);
+    steps.push("Body length: " + htmlBody.length);
+
+    // 6. Send
     await sendEmail({
-      to: ["zabi@renify.com.au"],
-      subject: "Renify SMTP Test from Vercel",
-      htmlBody: "<p>This is a test email sent from the Vercel production deployment.</p><p>If you received this, SMTP is working.</p>",
+      to: [supplier.email],
+      subject,
+      htmlBody,
     });
 
-    return NextResponse.json({ success: true, env: envInfo, message: "Email sent successfully" });
+    steps.push("EMAIL SENT SUCCESSFULLY");
+    return NextResponse.json({ success: true, steps });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    const stack = err instanceof Error ? err.stack : undefined;
+    const msg = err instanceof Error ? err.message : "Unknown";
     const code = (err as { code?: string }).code;
-    const command = (err as { command?: string }).command;
-    const responseCode = (err as { responseCode?: number }).responseCode;
-
-    return NextResponse.json({
-      success: false,
-      env: envInfo,
-      error: msg,
-      code,
-      command,
-      responseCode,
-      stack: stack?.split("\n").slice(0, 5),
-    });
+    steps.push("FAILED: " + msg + (code ? " (code: " + code + ")" : ""));
+    return NextResponse.json({ success: false, error: msg, code, steps });
   }
 }
