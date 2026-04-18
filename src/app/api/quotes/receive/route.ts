@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { getJob, saveJob, getEstimators, getSettings } from "@/lib/supabase";
 import { createFolder, uploadFile } from "@/lib/onedrive";
 import { getQuoteFileName, getNextVersion } from "@/lib/quote-utils";
-import { notifyQuoteReceived, notifyMilestone, isJobFullyQuoted } from "@/lib/notifications";
+import { isJobFullyQuoted } from "@/lib/notifications";
+import { notifyQuoteReceived, notifyMilestone } from "@/lib/notify-email";
 import { TRADES } from "@/data/trades";
 
 export async function POST(request: NextRequest) {

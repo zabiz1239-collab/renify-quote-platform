@@ -4,11 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
 import { getSuppliers, getEstimators, getTemplates, getJob, saveJob, getSettings } from "@/lib/supabase";
 import { renderTemplate, findTemplate, getGroupedTradeCodes, getTradeDisplayName } from "@/lib/templates";
-import { listFolder, downloadFile, getGraphClient } from "@/lib/onedrive";
+import { listFolder, downloadFile } from "@/lib/onedrive";
 
-const MAX_INLINE_SIZE = 3 * 1024 * 1024; // 3MB
 const MAX_TOTAL_SIZE = 150 * 1024 * 1024; // 150MB
-const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks for upload sessions
 
 interface AttachmentFile {
   name: string;
@@ -97,7 +95,7 @@ export async function POST(request: NextRequest) {
   }
 
   const hasAttachments = attachmentFiles.length > 0;
-  const hasLargeFiles = attachmentFiles.some((f) => f.size > MAX_INLINE_SIZE);
+
 
   // Group selections by supplier — combine trade codes that share a supplier
   const supplierMap = new Map<string, string[]>();
@@ -145,33 +143,21 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      if (!hasAttachments || (!hasLargeFiles && hasAttachments)) {
-        // All files <= 3MB: use inline attachments via sendEmail
-        const inlineAttachments = hasAttachments
-          ? attachmentFiles.map((f) => ({
-              name: f.name,
-              contentType: "application/pdf",
-              contentBytes: Buffer.from(f.content).toString("base64"),
-            }))
-          : [];
+      // Send via SMTP with all attachments
+      const emailAttachments = hasAttachments
+        ? attachmentFiles.map((f) => ({
+            name: f.name,
+            contentType: "application/pdf",
+            contentBytes: Buffer.from(f.content).toString("base64"),
+          }))
+        : [];
 
-        await sendEmail({
-          accessToken,
-          to: [supplier.email],
-          subject,
-          htmlBody,
-          attachments: inlineAttachments,
-        });
-      } else {
-        // Has large files: use draft message + upload session flow
-        await sendWithLargeAttachments(
-          accessToken,
-          supplier.email,
-          subject,
-          htmlBody,
-          attachmentFiles
-        );
-      }
+      await sendEmail({
+        to: [supplier.email],
+        subject,
+        htmlBody,
+        attachments: emailAttachments,
+      });
 
       // Update quote status for each trade
       for (const tradeCode of tradeCodes) {
@@ -214,84 +200,4 @@ export async function POST(request: NextRequest) {
   const failed = results.filter((r) => !r.success).length;
 
   return NextResponse.json({ sent, failed, results });
-}
-
-// Send email with large attachments using Graph API draft + upload session flow
-async function sendWithLargeAttachments(
-  accessToken: string,
-  to: string,
-  subject: string,
-  htmlBody: string,
-  files: AttachmentFile[]
-): Promise<void> {
-  const client = getGraphClient(accessToken);
-  let draftId: string | null = null;
-
-  try {
-    // 1. Create draft message
-    const draft = await client.api("/me/messages").post({
-      subject,
-      body: { contentType: "HTML", content: htmlBody },
-      toRecipients: [{ emailAddress: { address: to } }],
-    });
-    draftId = draft.id;
-
-    // 2. Upload each file
-    for (const file of files) {
-      if (file.size <= MAX_INLINE_SIZE) {
-        // Small file: add as regular attachment
-        await client
-          .api(`/me/messages/${draftId}/attachments`)
-          .post({
-            "@odata.type": "#microsoft.graph.fileAttachment",
-            name: file.name,
-            contentType: "application/pdf",
-            contentBytes: Buffer.from(file.content).toString("base64"),
-          });
-      } else {
-        // Large file: use upload session
-        const session = await client
-          .api(`/me/messages/${draftId}/attachments/createUploadSession`)
-          .post({
-            AttachmentItem: {
-              attachmentType: "file",
-              name: file.name,
-              size: file.size,
-              contentType: "application/pdf",
-            },
-          });
-
-        const uploadUrl = session.uploadUrl;
-        const bytes = new Uint8Array(file.content);
-
-        for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
-          const end = Math.min(offset + CHUNK_SIZE, bytes.length);
-          const chunk = bytes.slice(offset, end);
-
-          await fetch(uploadUrl, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/octet-stream",
-              "Content-Length": chunk.length.toString(),
-              "Content-Range": `bytes ${offset}-${end - 1}/${bytes.length}`,
-            },
-            body: chunk,
-          });
-        }
-      }
-    }
-
-    // 3. Send the draft
-    await client.api(`/me/messages/${draftId}/send`).post({});
-  } catch (err) {
-    // Clean up draft on failure to avoid orphans
-    if (draftId) {
-      try {
-        await client.api(`/me/messages/${draftId}`).delete();
-      } catch {
-        // Ignore cleanup failure
-      }
-    }
-    throw err;
-  }
 }

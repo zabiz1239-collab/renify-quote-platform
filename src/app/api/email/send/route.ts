@@ -32,8 +32,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const accessToken = session.accessToken;
-
   // Load data from Supabase
   const [suppliers, estimators, templates, job] = await Promise.all([
     getSuppliers(),
@@ -88,7 +86,6 @@ export async function POST(request: NextRequest) {
 
     try {
       await sendEmail({
-        accessToken,
         to: [supplier.email],
         subject,
         htmlBody,

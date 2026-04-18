@@ -66,7 +66,6 @@ export async function POST(_request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const accessToken = session.accessToken;
   const settings = await getSettings();
   const followUpDays = settings?.followUpDays || { first: 7, second: 14 };
 
@@ -123,7 +122,7 @@ export async function POST(_request: NextRequest) {
           const subject = renderTemplate(template.subject, context);
           const htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
 
-          await sendEmail({ accessToken, to: [supplier.email], subject, htmlBody });
+          await sendEmail({ to: [supplier.email], subject, htmlBody });
 
           quote.followUpCount++;
           quote.lastFollowUp = new Date().toISOString();
