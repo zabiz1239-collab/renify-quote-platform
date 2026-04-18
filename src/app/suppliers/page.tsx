@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Star, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2 } from "lucide-react";
 import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -73,6 +73,7 @@ export default function SuppliersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  const [tradeSearch, setTradeSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Scraper modal state
@@ -108,6 +109,7 @@ export default function SuppliersPage() {
     setForm(EMPTY_FORM);
     setEditingId(null);
     setTouched(false);
+    setTradeSearch("");
     setDialogOpen(true);
   }
 
@@ -496,6 +498,7 @@ export default function SuppliersPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
+                  {/* Company + Email first — required fields */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Company *</Label>
@@ -506,20 +509,7 @@ export default function SuppliersPage() {
                         }
                         className={`min-h-[44px] ${touched && !form.company ? "border-red-500" : ""}`}
                       />
-                      {touched && !form.company && <p className="text-xs text-red-500">This field is required.</p>}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Contact Person</Label>
-                      <Input
-                        value={form.contact}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, contact: e.target.value }))
-                        }
-                        className="min-h-[44px]"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Email *</Label>
                       <Input
@@ -530,7 +520,19 @@ export default function SuppliersPage() {
                         }
                         className={`min-h-[44px] ${touched && !form.email ? "border-red-500" : ""}`}
                       />
-                      {touched && !form.email && <p className="text-xs text-red-500">This field is required.</p>}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Contact Person</Label>
+                      <Input
+                        value={form.contact}
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, contact: e.target.value }))
+                        }
+                        className="min-h-[44px]"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Phone</Label>
@@ -543,17 +545,79 @@ export default function SuppliersPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>ABN</Label>
-                      <Input
-                        value={form.abn}
-                        onChange={(e) =>
-                          setForm((p) => ({ ...p, abn: e.target.value }))
-                        }
-                        className="min-h-[44px]"
-                      />
+
+                  {/* TRADES — prominent, right after contact info */}
+                  <div className={`space-y-2 p-3 rounded-lg border-2 ${touched && form.trades.length === 0 ? "border-red-500 bg-red-50" : "border-[#2D5E3A]/30 bg-[#2D5E3A]/5"}`}>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-semibold">
+                        Trades * <span className="text-sm font-normal text-muted-foreground">({form.trades.length} selected)</span>
+                      </Label>
+                      <div className="flex gap-1">
+                        <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
+                          onClick={() => setForm((p) => ({ ...p, trades: TRADES.filter((t) => t.quotable).map((t) => t.code) }))}>
+                          All
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
+                          onClick={() => setForm((p) => ({ ...p, trades: [] }))}>
+                          None
+                        </Button>
+                      </div>
                     </div>
+                    {touched && form.trades.length === 0 && <p className="text-sm text-red-600 font-medium">You must select at least one trade or this supplier will not appear when quoting</p>}
+                    <Input
+                      placeholder="Search trades..."
+                      value={tradeSearch}
+                      onChange={(e) => setTradeSearch(e.target.value)}
+                      className="min-h-[44px]"
+                    />
+                    <div className="grid grid-cols-2 gap-1 max-h-52 overflow-y-auto">
+                      {TRADES.filter((t) => {
+                        if (!t.quotable) return false;
+                        if (!tradeSearch) return true;
+                        const s = tradeSearch.toLowerCase();
+                        return t.name.toLowerCase().includes(s) || t.code.includes(s);
+                      }).map((trade) => (
+                        <label
+                          key={trade.code}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm min-h-[36px] ${
+                            form.trades.includes(trade.code) ? "bg-[#2D5E3A]/10 font-medium" : "hover:bg-muted"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.trades.includes(trade.code)}
+                            onChange={() => toggleTrade(trade.code)}
+                            className="w-4 h-4 flex-shrink-0"
+                          />
+                          <span className="truncate">{trade.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Regions */}
+                  <div className="space-y-2">
+                    <Label>Regions</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {DEFAULT_REGIONS.map((region) => (
+                        <label
+                          key={region}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border hover:bg-muted cursor-pointer min-h-[44px]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.regions.includes(region)}
+                            onChange={() => toggleRegion(region)}
+                            className="w-4 h-4"
+                          />
+                          {region}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Status + ABN + Rating — less important, at bottom */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Status</Label>
                       <Select
@@ -577,72 +641,18 @@ export default function SuppliersPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>
-                      Rating: {form.rating}/5
-                    </Label>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => setForm((p) => ({ ...p, rating: n }))}
-                          className="p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                        >
-                          <Star
-                            className={`w-6 h-6 ${
-                              n <= form.rating
-                                ? "fill-yellow-400 text-yellow-400"
-                                : "text-gray-300"
-                            }`}
-                          />
-                        </button>
-                      ))}
+                    <div className="space-y-2">
+                      <Label>ABN</Label>
+                      <Input
+                        value={form.abn}
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, abn: e.target.value }))
+                        }
+                        className="min-h-[44px]"
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Trades * <span className="text-xs font-normal text-muted-foreground">({form.trades.length} selected)</span></Label>
-                    {touched && form.trades.length === 0 && <p className="text-xs text-red-500">Select at least one trade</p>}
-                    <div className={`grid grid-cols-2 gap-1 max-h-48 overflow-y-auto border rounded-lg p-2 ${touched && form.trades.length === 0 ? "border-red-500" : ""}`}>
-                      {TRADES.filter((t) => t.quotable).map((trade) => (
-                        <label
-                          key={trade.code}
-                          className="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer text-sm min-h-[36px]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.trades.includes(trade.code)}
-                            onChange={() => toggleTrade(trade.code)}
-                            className="w-4 h-4"
-                          />
-                          <span className="text-muted-foreground text-xs">
-                            {trade.code}
-                          </span>{" "}
-                          {trade.name}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Regions</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {DEFAULT_REGIONS.map((region) => (
-                        <label
-                          key={region}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border hover:bg-muted cursor-pointer min-h-[44px]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.regions.includes(region)}
-                            onChange={() => toggleRegion(region)}
-                            className="w-4 h-4"
-                          />
-                          {region}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+
                   <div className="space-y-2">
                     <Label>Notes</Label>
                     <Textarea
@@ -650,7 +660,7 @@ export default function SuppliersPage() {
                       onChange={(e) =>
                         setForm((p) => ({ ...p, notes: e.target.value }))
                       }
-                      rows={3}
+                      rows={2}
                     />
                   </div>
                   <div className="flex gap-4 pt-2">
