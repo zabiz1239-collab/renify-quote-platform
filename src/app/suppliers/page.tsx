@@ -669,13 +669,21 @@ export default function SuppliersPage() {
                     <TableHead className="hidden md:table-cell">Email</TableHead>
                     <TableHead className="hidden lg:table-cell">Trades</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-[100px]">Actions</TableHead>
+                    <TableHead className="w-[180px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((sup) => (
                     <TableRow key={sup.id}>
-                      <TableCell className="font-medium">{sup.company}</TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{sup.company}</p>
+                          <p className="text-xs text-muted-foreground md:hidden">
+                            {sup.contact && <span>{sup.contact} &middot; </span>}
+                            {sup.email}
+                          </p>
+                        </div>
+                      </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {sup.contact}
                       </TableCell>
@@ -683,21 +691,33 @@ export default function SuppliersPage() {
                         {sup.email}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
-                        <div className="flex flex-wrap gap-1">
-                          {sup.trades.slice(0, 3).map((code) => {
-                            const trade = TRADES.find((t) => t.code === code);
-                            return (
-                              <Badge key={code} variant="secondary" className="text-xs" title={code}>
-                                {trade?.name || code}
-                              </Badge>
-                            );
-                          })}
-                          {sup.trades.length > 3 && (
-                            <Badge variant="secondary" className="text-xs">
-                              +{sup.trades.length - 3}
+                        <button
+                          onClick={() => openEdit(sup)}
+                          className="flex flex-wrap gap-1 hover:opacity-70 transition-opacity"
+                          title="Click to edit trades"
+                        >
+                          {sup.trades.length === 0 ? (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              + Add trades
                             </Badge>
+                          ) : (
+                            <>
+                              {sup.trades.slice(0, 3).map((code) => {
+                                const trade = TRADES.find((t) => t.code === code);
+                                return (
+                                  <Badge key={code} variant="secondary" className="text-xs" title={code}>
+                                    {trade?.name || code}
+                                  </Badge>
+                                );
+                              })}
+                              {sup.trades.length > 3 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  +{sup.trades.length - 3}
+                                </Badge>
+                              )}
+                            </>
                           )}
-                        </div>
+                        </button>
                       </TableCell>
                       <TableCell>
                         <Badge className={statusColor(sup.status)}>
@@ -705,21 +725,25 @@ export default function SuppliersPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
-                          <button
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => openEdit(sup)}
-                            className="p-2 hover:bg-muted rounded min-w-[44px] min-h-[44px] flex items-center justify-center"
-                            aria-label="Edit"
+                            className="min-h-[44px] px-3"
                           >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
+                            <Pencil className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
                             onClick={() => handleDelete(sup.id)}
-                            className="p-2 hover:bg-muted rounded text-destructive min-w-[44px] min-h-[44px] flex items-center justify-center"
-                            aria-label="Delete"
+                            className="min-h-[44px] px-3"
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Delete
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
