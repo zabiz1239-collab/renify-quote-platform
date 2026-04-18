@@ -26,9 +26,11 @@ export async function POST(request: NextRequest) {
   const {
     jobCode,
     selections, // Array of { supplierId, tradeCodes[] }
+    templateId, // Optional: override template selection
   } = body as {
     jobCode: string;
     selections: { supplierId: string; tradeCodes: string[] }[];
+    templateId?: string;
   };
 
   if (!jobCode || !selections?.length) {
@@ -119,8 +121,10 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Find best template for body content
-    const template = findTemplate(templates, tradeCodes, "request");
+    // Find template — use override if provided, otherwise auto-match
+    const template = templateId
+      ? templates.find((t) => t.id === templateId)
+      : findTemplate(templates, tradeCodes, "request");
     if (!template) {
       results.push({ supplier: supplier.company, tradeCodes, success: false, error: "No template found" });
       continue;

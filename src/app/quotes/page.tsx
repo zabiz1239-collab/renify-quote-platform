@@ -23,11 +23,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Send, AlertTriangle, Check, Loader2, Mail, FileInput, Search } from "lucide-react";
-import { getJobs, getSuppliers } from "@/lib/supabase";
+import { Send, AlertTriangle, Check, Loader2, Mail, FileInput, Search, CheckCircle, Clock, XCircle } from "lucide-react";
+import { getJobs, getSuppliers, getTemplates } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Job, Supplier } from "@/types";
+import type { Job, Supplier, EmailTemplate } from "@/types";
 import { toast } from "sonner";
 
 interface Selection {
@@ -42,9 +42,11 @@ export default function SendQuotesPage() {
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJobCode, setSelectedJobCode] = useState("");
   const [selectedTradeCode, setSelectedTradeCode] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [checkedSuppliers, setCheckedSuppliers] = useState<Set<string>>(new Set());
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -52,12 +54,14 @@ export default function SendQuotesPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [jobsData, suppliersData] = await Promise.all([
+      const [jobsData, suppliersData, templatesData] = await Promise.all([
         getJobs(),
         getSuppliers(),
+        getTemplates(),
       ]);
       setJobs(jobsData);
       setSuppliers(suppliersData);
+      setTemplates(templatesData);
     } catch (err) {
       console.error("Failed to load data:", err);
     } finally {
@@ -123,7 +127,7 @@ export default function SendQuotesPage() {
       const res = await fetch("/api/email/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobCode: selectedJob.jobCode, selections }),
+        body: JSON.stringify({ jobCode: selectedJob.jobCode, selections, templateId: selectedTemplateId && selectedTemplateId !== "auto" ? selectedTemplateId : undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Send failed");
@@ -244,15 +248,16 @@ export default function SendQuotesPage() {
           );
         })()}
 
-        {/* Step 2: Trade Dropdown */}
+        {/* Step 2: Trade Dropdown + Quote Status */}
         {selectedJob && (selectedJob.trades || []).length > 0 && (
           <Card>
             <CardHeader><CardTitle>2. Select Trade</CardTitle></CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <Select
                 value={selectedTradeCode}
                 onValueChange={(v) => {
                   setSelectedTradeCode(v);
+                  setSelectedTemplateId("");
                   setCheckedSuppliers(new Set());
                   setSupplierSearch("");
                 }}
@@ -263,14 +268,63 @@ export default function SendQuotesPage() {
                 <SelectContent>
                   {(selectedJob.trades || []).map((trade) => {
                     const supplierCount = suppliers.filter((s) => s.trades.includes(trade.code)).length;
+                    const requested = (trade.quotes || []).filter((q) => q.status === "requested").length;
+                    const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted").length;
                     return (
                       <SelectItem key={trade.code} value={trade.code}>
                         {trade.code} {trade.name} ({supplierCount} suppliers)
+                        {requested > 0 && ` — ${requested} requested`}
+                        {received > 0 && ` — ${received} received`}
                       </SelectItem>
                     );
                   })}
                 </SelectContent>
               </Select>
+
+              {/* Quote status summary for selected job */}
+              {(() => {
+                const tradesWithQuotes = (selectedJob.trades || []).filter(
+                  (t) => t.quotes && t.quotes.length > 0
+                );
+                if (tradesWithQuotes.length === 0) return null;
+                return (
+                  <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto">
+                    <div className="px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                      Quotes already requested for this job
+                    </div>
+                    {tradesWithQuotes.map((trade) => {
+                      const requested = (trade.quotes || []).filter((q) => q.status === "requested");
+                      const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted");
+                      const declined = (trade.quotes || []).filter((q) => q.status === "declined");
+                      return (
+                        <div key={trade.code} className="flex items-center justify-between px-3 py-2 text-sm">
+                          <span>
+                            <span className="text-muted-foreground">{trade.code}</span>{" "}
+                            {trade.name}
+                          </span>
+                          <div className="flex gap-2">
+                            {requested.length > 0 && (
+                              <span className="flex items-center gap-1 text-xs text-blue-600">
+                                <Clock className="w-3 h-3" /> {requested.length} requested
+                              </span>
+                            )}
+                            {received.length > 0 && (
+                              <span className="flex items-center gap-1 text-xs text-green-600">
+                                <CheckCircle className="w-3 h-3" /> {received.length} received
+                              </span>
+                            )}
+                            {declined.length > 0 && (
+                              <span className="flex items-center gap-1 text-xs text-red-600">
+                                <XCircle className="w-3 h-3" /> {declined.length} declined
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         )}
@@ -319,41 +373,95 @@ export default function SendQuotesPage() {
                 </p>
               ) : (
                 <div className="border rounded-lg divide-y max-h-[400px] overflow-y-auto">
-                  {filteredSuppliers.map((sup) => (
-                    <label
-                      key={sup.id}
-                      className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checkedSuppliers.has(sup.id)}
-                        onChange={() => toggleSupplier(sup.id)}
-                        className="w-4 h-4 flex-shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{sup.company}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {sup.email || "No email"}
-                          {sup.phone && ` · ${sup.phone}`}
-                          {sup.regions.length > 0 && ` · ${sup.regions.join(", ")}`}
-                        </p>
-                      </div>
-                      <Badge
-                        variant="secondary"
-                        className={`text-xs flex-shrink-0 ${
-                          sup.status === "verified"
-                            ? "bg-green-100 text-green-800"
-                            : sup.status === "blacklisted"
-                            ? "bg-red-100 text-red-800"
-                            : ""
-                        }`}
+                  {filteredSuppliers.map((sup) => {
+                    // Check if this supplier already has a quote for this trade on this job
+                    const existingQuote = selectedJob
+                      ? (selectedJob.trades || [])
+                          .find((t) => t.code === selectedTradeCode)
+                          ?.quotes?.find((q) => q.supplierId === sup.id)
+                      : undefined;
+                    return (
+                      <label
+                        key={sup.id}
+                        className={`flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px] ${existingQuote ? "bg-blue-50/50" : ""}`}
                       >
-                        {sup.status}
-                      </Badge>
-                    </label>
-                  ))}
+                        <input
+                          type="checkbox"
+                          checked={checkedSuppliers.has(sup.id)}
+                          onChange={() => toggleSupplier(sup.id)}
+                          className="w-4 h-4 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{sup.company}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {sup.email || "No email"}
+                            {sup.phone && ` · ${sup.phone}`}
+                            {sup.regions.length > 0 && ` · ${sup.regions.join(", ")}`}
+                          </p>
+                        </div>
+                        {existingQuote ? (
+                          <Badge
+                            className={`text-xs flex-shrink-0 ${
+                              existingQuote.status === "received" || existingQuote.status === "accepted"
+                                ? "bg-green-100 text-green-800"
+                                : existingQuote.status === "requested"
+                                ? "bg-blue-100 text-blue-800"
+                                : existingQuote.status === "declined"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {existingQuote.status.replace("_", " ")}
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="secondary"
+                            className={`text-xs flex-shrink-0 ${
+                              sup.status === "verified"
+                                ? "bg-green-100 text-green-800"
+                                : sup.status === "blacklisted"
+                                ? "bg-red-100 text-red-800"
+                                : ""
+                            }`}
+                          >
+                            {sup.status}
+                          </Badge>
+                        )}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 4: Template Picker */}
+        {selectedTradeCode && checkedSuppliers.size > 0 && (
+          <Card>
+            <CardHeader><CardTitle>4. Email Template</CardTitle></CardHeader>
+            <CardContent>
+              <Select
+                value={selectedTemplateId}
+                onValueChange={setSelectedTemplateId}
+              >
+                <SelectTrigger className="min-h-[44px]">
+                  <SelectValue placeholder="Auto-select best template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-select best template</SelectItem>
+                  {templates
+                    .filter((t) => t.type === "request")
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-2">
+                Leave on auto to use the best matching template, or pick a specific one.
+              </p>
             </CardContent>
           </Card>
         )}
