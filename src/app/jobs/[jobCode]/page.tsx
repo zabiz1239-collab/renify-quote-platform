@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles } from "lucide-react";
+import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil } from "lucide-react";
 import { getJob, getEstimators, getSuppliers, saveJob } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -60,6 +60,71 @@ export default function JobDetailPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingZone, setUploadingZone] = useState<string | null>(null);
+
+  // Edit job dialog state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    address: "",
+    clientName: "",
+    clientPhone: "",
+    clientEmail: "",
+    region: "",
+    buildType: "" as Job["buildType"],
+    storeys: "" as Job["storeys"],
+    targetDate: "",
+    budgetEstimate: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  function openEditDialog() {
+    if (!job) return;
+    setEditForm({
+      address: job.address,
+      clientName: job.client.name,
+      clientPhone: job.client.phone || "",
+      clientEmail: job.client.email || "",
+      region: job.region,
+      buildType: job.buildType,
+      storeys: job.storeys,
+      targetDate: job.targetDate || "",
+      budgetEstimate: job.budgetEstimate ? String(job.budgetEstimate) : "",
+    });
+    setEditOpen(true);
+  }
+
+  async function handleEditSubmit() {
+    if (!job) return;
+    if (!editForm.address || !editForm.clientName || !editForm.region || !editForm.buildType || !editForm.storeys) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const updatedJob: Job = {
+        ...job,
+        address: editForm.address,
+        client: {
+          name: editForm.clientName,
+          phone: editForm.clientPhone || undefined,
+          email: editForm.clientEmail || undefined,
+        },
+        region: editForm.region,
+        buildType: editForm.buildType,
+        storeys: editForm.storeys,
+        targetDate: editForm.targetDate || undefined,
+        budgetEstimate: editForm.budgetEstimate ? parseFloat(editForm.budgetEstimate) : undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      setEditOpen(false);
+      toast.success("Job updated");
+    } catch {
+      toast.error("Failed to update job");
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   // Receive quote dialog state
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -282,6 +347,9 @@ export default function JobDetailPage() {
           </div>
           <div className="flex gap-2">
             <Badge className={STATUS_COLORS[job.status] || ""}>{job.status}</Badge>
+            <Button variant="outline" size="sm" onClick={openEditDialog} className="min-h-[36px]">
+              <Pencil className="w-4 h-4 mr-1" /> Edit
+            </Button>
             <Button variant="outline" size="sm" onClick={handleDelete} className="text-destructive min-h-[36px]">
               <Trash2 className="w-4 h-4 mr-1" /> Delete
             </Button>
@@ -311,7 +379,7 @@ export default function JobDetailPage() {
           <CardHeader><CardTitle>Status</CardTitle></CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {(["active", "quoting", "quoted", "tendered", "won", "lost"] as const).map((s) => (
+              {(["active", "quoting", "quoted"] as const).map((s) => (
                 <Button
                   key={s}
                   variant={job.status === s ? "default" : "outline"}
@@ -671,6 +739,137 @@ export default function JobDetailPage() {
                   )}
                 </Button>
                 <Button variant="outline" onClick={() => setReceiveOpen(false)} className="min-h-[44px]">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Job Dialog */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Job — {job.jobCode}</DialogTitle>
+              <DialogDescription>Update job details below.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>Address *</Label>
+                <Input
+                  value={editForm.address}
+                  onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))}
+                  className="min-h-[44px]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Client Name *</Label>
+                <Input
+                  value={editForm.clientName}
+                  onChange={(e) => setEditForm((f) => ({ ...f, clientName: e.target.value }))}
+                  className="min-h-[44px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Client Phone</Label>
+                  <Input
+                    type="tel"
+                    value={editForm.clientPhone}
+                    onChange={(e) => setEditForm((f) => ({ ...f, clientPhone: e.target.value }))}
+                    className="min-h-[44px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Client Email</Label>
+                  <Input
+                    type="email"
+                    value={editForm.clientEmail}
+                    onChange={(e) => setEditForm((f) => ({ ...f, clientEmail: e.target.value }))}
+                    className="min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Region *</Label>
+                <select
+                  value={editForm.region}
+                  onChange={(e) => setEditForm((f) => ({ ...f, region: e.target.value }))}
+                  className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px]"
+                >
+                  <option value="">Select region</option>
+                  {["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"].map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Build Type *</Label>
+                  <select
+                    value={editForm.buildType}
+                    onChange={(e) => setEditForm((f) => ({ ...f, buildType: e.target.value as Job["buildType"] }))}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px]"
+                  >
+                    {["New Build", "Dual Occ", "Extension", "Renovation"].map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Storeys *</Label>
+                  <select
+                    value={editForm.storeys}
+                    onChange={(e) => setEditForm((f) => ({ ...f, storeys: e.target.value as Job["storeys"] }))}
+                    className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px]"
+                  >
+                    {["Single", "Double", "Triple"].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Target Date</Label>
+                  <Input
+                    type="date"
+                    value={editForm.targetDate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, targetDate: e.target.value }))}
+                    className="min-h-[44px]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Budget Estimate ($)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="e.g. 350000"
+                    value={editForm.budgetEstimate}
+                    onChange={(e) => setEditForm((f) => ({ ...f, budgetEstimate: e.target.value }))}
+                    className="min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={handleEditSubmit}
+                  disabled={editSaving || !editForm.address || !editForm.clientName || !editForm.region}
+                  className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                >
+                  {editSaving ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => setEditOpen(false)} className="min-h-[44px]">
                   Cancel
                 </Button>
               </div>

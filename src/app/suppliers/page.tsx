@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download } from "lucide-react";
 import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -41,6 +41,30 @@ import Papa from "papaparse";
 import { toast } from "sonner";
 
 const DEFAULT_REGIONS = ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"];
+
+const TRADE_CATEGORY_ORDER = [
+  { key: "siteworks", label: "Siteworks", range: [15, 100] },
+  { key: "structure", label: "Structure", range: [105, 195] },
+  { key: "external", label: "External", range: [200, 310] },
+  { key: "services", label: "Services", range: [315, 370] },
+  { key: "internal", label: "Internal", range: [375, 530] },
+  { key: "finishes", label: "Finishes", range: [535, 640] },
+  { key: "other", label: "Other", range: [641, 999] },
+] as const;
+
+function getTradeCategory(code: string): string {
+  const num = parseInt(code, 10);
+  for (const cat of TRADE_CATEGORY_ORDER) {
+    if (num >= cat.range[0] && num <= cat.range[1]) return cat.key;
+  }
+  return "other";
+}
+
+const QUOTABLE_TRADES = TRADES.filter((t) => t.quotable);
+const GROUPED_TRADES = TRADE_CATEGORY_ORDER.map((cat) => ({
+  ...cat,
+  trades: QUOTABLE_TRADES.filter((t) => getTradeCategory(t.code) === cat.key),
+})).filter((g) => g.trades.length > 0);
 
 const STATUS_OPTIONS = [
   { value: "verified", label: "Verified", color: "bg-green-100 text-green-800" },
@@ -74,6 +98,7 @@ export default function SuppliersPage() {
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [tradeSearch, setTradeSearch] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Scraper modal state
@@ -357,6 +382,57 @@ export default function SuppliersPage() {
     }
   }
 
+  // Export dialog state
+  const [exportOpen, setExportOpen] = useState(false);
+
+  function downloadCsv(rows: Supplier[], filename: string) {
+    const header = "company,contact,email,phone,abn,trades,regions,status,rating,notes";
+    const csvRows = rows.map((s) => {
+      const escape = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+      const tradeNames = s.trades
+        .map((code) => TRADES.find((t) => t.code === code)?.name || code)
+        .join("; ");
+      return [
+        escape(s.company),
+        escape(s.contact),
+        escape(s.email),
+        escape(s.phone),
+        escape(s.abn || ""),
+        escape(tradeNames),
+        escape(s.regions.join("; ")),
+        escape(s.status),
+        String(s.rating),
+        escape(s.notes),
+      ].join(",");
+    });
+    const csv = [header, ...csvRows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportAll() {
+    if (suppliers.length === 0) { toast.error("No suppliers to export"); return; }
+    downloadCsv(suppliers, "suppliers_all.csv");
+    toast.success(`Exported ${suppliers.length} suppliers`);
+    setExportOpen(false);
+  }
+
+  function exportByCategory(categoryKey: string, categoryLabel: string) {
+    const group = GROUPED_TRADES.find((g) => g.key === categoryKey);
+    if (!group) return;
+    const tradeCodes: string[] = group.trades.map((t) => t.code);
+    const matching = suppliers.filter((s) => s.trades.some((t) => tradeCodes.includes(t)));
+    if (matching.length === 0) { toast.error(`No suppliers in ${categoryLabel}`); return; }
+    downloadCsv(matching, `suppliers_${categoryKey}.csv`);
+    toast.success(`Exported ${matching.length} suppliers (${categoryLabel})`);
+    setExportOpen(false);
+  }
+
   const filtered = suppliers.filter(
     (s) =>
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -372,7 +448,11 @@ export default function SuppliersPage() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <h1 className="text-2xl font-bold">Suppliers</h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={() => setExportOpen(true)} variant="outline" className="min-h-[44px]">
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
             <label className="cursor-pointer">
               <input
                 ref={fileInputRef}
@@ -548,7 +628,7 @@ export default function SuppliersPage() {
                     </div>
                   </div>
 
-                  {/* TRADES — prominent, right after contact info */}
+                  {/* TRADES — grouped by category */}
                   <div className={`space-y-2 p-3 rounded-lg border-2 ${touched && form.trades.length === 0 ? "border-red-500 bg-red-50" : "border-[#2D5E3A]/30 bg-[#2D5E3A]/5"}`}>
                     <div className="flex items-center justify-between">
                       <Label className="text-base font-semibold">
@@ -556,7 +636,7 @@ export default function SuppliersPage() {
                       </Label>
                       <div className="flex gap-1">
                         <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
-                          onClick={() => setForm((p) => ({ ...p, trades: TRADES.filter((t) => t.quotable).map((t) => t.code) }))}>
+                          onClick={() => setForm((p) => ({ ...p, trades: QUOTABLE_TRADES.map((t) => t.code) }))}>
                           All
                         </Button>
                         <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
@@ -572,28 +652,92 @@ export default function SuppliersPage() {
                       onChange={(e) => setTradeSearch(e.target.value)}
                       className="min-h-[44px]"
                     />
-                    <div className="grid grid-cols-2 gap-1 max-h-52 overflow-y-auto">
-                      {TRADES.filter((t) => {
-                        if (!t.quotable) return false;
-                        if (!tradeSearch) return true;
-                        const s = tradeSearch.toLowerCase();
-                        return t.name.toLowerCase().includes(s) || t.code.includes(s);
-                      }).map((trade) => (
-                        <label
-                          key={trade.code}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm min-h-[36px] ${
-                            form.trades.includes(trade.code) ? "bg-[#2D5E3A]/10 font-medium" : "hover:bg-muted"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.trades.includes(trade.code)}
-                            onChange={() => toggleTrade(trade.code)}
-                            className="w-4 h-4 flex-shrink-0"
-                          />
-                          <span className="truncate">{trade.name}</span>
-                        </label>
-                      ))}
+                    <div className="max-h-64 overflow-y-auto border rounded-lg">
+                      {(() => {
+                        const filteredGroups = tradeSearch
+                          ? GROUPED_TRADES.map((g) => ({
+                              ...g,
+                              trades: g.trades.filter(
+                                (t) =>
+                                  t.name.toLowerCase().includes(tradeSearch.toLowerCase()) ||
+                                  t.code.includes(tradeSearch)
+                              ),
+                            })).filter((g) => g.trades.length > 0)
+                          : GROUPED_TRADES;
+
+                        return filteredGroups.map((group) => {
+                          const isCollapsed = collapsedGroups.has(group.key) && !tradeSearch;
+                          const groupCodes: string[] = group.trades.map((t) => t.code);
+                          const allGroupSelected = groupCodes.every((c) => form.trades.includes(c));
+                          const someGroupSelected = groupCodes.some((c) => form.trades.includes(c));
+
+                          return (
+                            <div key={group.key} className="border-b last:border-b-0">
+                              <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 sticky top-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setCollapsedGroups((prev) => {
+                                    const next = new Set(Array.from(prev));
+                                    if (next.has(group.key)) next.delete(group.key);
+                                    else next.add(group.key);
+                                    return next;
+                                  })}
+                                  className="p-1 min-w-[28px] min-h-[28px] flex items-center justify-center"
+                                >
+                                  <ChevronDown className={`w-4 h-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                                </button>
+                                <input
+                                  type="checkbox"
+                                  checked={allGroupSelected}
+                                  ref={(el) => { if (el) el.indeterminate = someGroupSelected && !allGroupSelected; }}
+                                  onChange={() => {
+                                    if (allGroupSelected) {
+                                      setForm((p) => ({ ...p, trades: p.trades.filter((c) => !groupCodes.includes(c)) }));
+                                    } else {
+                                      setForm((p) => ({ ...p, trades: Array.from(new Set([...p.trades, ...groupCodes])) }));
+                                    }
+                                  }}
+                                  className="w-4 h-4"
+                                />
+                                <span className="text-sm font-medium flex-1">{group.label}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {groupCodes.filter((c) => form.trades.includes(c)).length}/{groupCodes.length}
+                                </span>
+                              </div>
+                              {!isCollapsed && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+                                  {group.trades.map((trade) => (
+                                    <label
+                                      key={trade.code}
+                                      className={`flex items-center gap-2 px-3 py-2 pl-10 cursor-pointer text-sm min-h-[44px] ${
+                                        form.trades.includes(trade.code) ? "bg-[#2D5E3A]/10 font-medium" : "hover:bg-muted"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={form.trades.includes(trade.code)}
+                                        onChange={() => toggleTrade(trade.code)}
+                                        className="w-4 h-4 flex-shrink-0"
+                                      />
+                                      <span className="truncate">
+                                        <span className="text-muted-foreground">{trade.code}</span>{" "}
+                                        {trade.name}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                      {tradeSearch && GROUPED_TRADES.every((g) =>
+                        g.trades.every((t) =>
+                          !t.name.toLowerCase().includes(tradeSearch.toLowerCase()) && !t.code.includes(tradeSearch)
+                        )
+                      ) && (
+                        <p className="text-sm text-muted-foreground text-center py-4">No trades match your search.</p>
+                      )}
                     </div>
                   </div>
 
@@ -681,6 +825,38 @@ export default function SuppliersPage() {
                       Cancel
                     </Button>
                   </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            {/* Export CSV Dialog */}
+            <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Export Suppliers</DialogTitle>
+                  <DialogDescription>Download as CSV — all suppliers or filtered by category.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2 pt-4">
+                  <Button onClick={exportAll} variant="default" className="w-full min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export All ({suppliers.length})
+                  </Button>
+                  <p className="text-xs text-muted-foreground pt-2 pb-1">Or export by category:</p>
+                  {TRADE_CATEGORY_ORDER.map((cat) => {
+                    const tradeCodes: string[] = GROUPED_TRADES.find((g) => g.key === cat.key)?.trades.map((t) => t.code) || [];
+                    const count = suppliers.filter((s) => s.trades.some((t) => tradeCodes.includes(t))).length;
+                    return (
+                      <Button
+                        key={cat.key}
+                        onClick={() => exportByCategory(cat.key, cat.label)}
+                        variant="outline"
+                        className="w-full min-h-[44px] justify-between"
+                        disabled={count === 0}
+                      >
+                        <span>{cat.label}</span>
+                        <Badge variant="secondary" className="text-xs">{count}</Badge>
+                      </Button>
+                    );
+                  })}
                 </div>
               </DialogContent>
             </Dialog>
