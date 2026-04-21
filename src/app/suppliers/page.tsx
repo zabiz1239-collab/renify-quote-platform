@@ -61,7 +61,7 @@ function getTradeCategory(code: string): string {
 }
 
 const QUOTABLE_TRADES = TRADES.filter((t) => t.quotable);
-const GROUPED_TRADES = TRADE_CATEGORY_ORDER.map((cat) => ({
+const DEFAULT_GROUPED_TRADES = TRADE_CATEGORY_ORDER.map((cat) => ({
   ...cat,
   trades: QUOTABLE_TRADES.filter((t) => getTradeCategory(t.code) === cat.key),
 })).filter((g) => g.trades.length > 0);
@@ -120,12 +120,28 @@ export default function SuppliersPage() {
   const [editCatLabel, setEditCatLabel] = useState("");
   const [editCatKeywords, setEditCatKeywords] = useState("");
 
+  // Custom trades state
+  const [customTrades, setCustomTrades] = useState<{ code: string; name: string }[]>([]);
+  const [newTradeCode, setNewTradeCode] = useState("");
+  const [newTradeName, setNewTradeName] = useState("");
+
+  // Dynamically include custom trades in grouped trades
+  const GROUPED_TRADES = (() => {
+    if (customTrades.length === 0) return DEFAULT_GROUPED_TRADES;
+    const allQuotable = [...QUOTABLE_TRADES, ...customTrades.map((t) => ({ ...t, quotable: true as const }))];
+    return TRADE_CATEGORY_ORDER.map((cat) => ({
+      ...cat,
+      trades: allQuotable.filter((t) => getTradeCategory(t.code) === cat.key),
+    })).filter((g) => g.trades.length > 0);
+  })();
+
   useEffect(() => {
     loadSuppliers();
-    // Load regions and custom categories from settings
+    // Load regions, custom categories and custom trades from settings
     getSettings().then((s) => {
       if (s.regions && s.regions.length > 0) setScraperRegions(s.regions);
       if (s.supplierCategories) setCustomCategories(s.supplierCategories);
+      if (s.customTrades) setCustomTrades(s.customTrades);
     }).catch(() => {});
   }, []);
 
@@ -443,6 +459,33 @@ export default function SuppliersPage() {
     toast.success("Category removed");
   }
 
+  // Custom trade functions
+  async function handleAddTrade() {
+    const code = newTradeCode.trim();
+    const name = newTradeName.trim().toUpperCase();
+    if (!code || !name) return;
+    // Check for duplicate code
+    if (TRADES.some((t) => t.code === code) || customTrades.some((t) => t.code === code)) {
+      toast.error(`Trade code ${code} already exists`);
+      return;
+    }
+    const updated = [...customTrades, { code, name }];
+    setCustomTrades(updated);
+    setNewTradeCode("");
+    setNewTradeName("");
+    const settings = await getSettings();
+    await saveSettings({ ...settings, customTrades: updated });
+    toast.success(`Trade "${code} ${name}" added`);
+  }
+
+  async function handleDeleteTrade(code: string) {
+    const updated = customTrades.filter((t) => t.code !== code);
+    setCustomTrades(updated);
+    const settings = await getSettings();
+    await saveSettings({ ...settings, customTrades: updated });
+    toast.success("Trade removed");
+  }
+
   // Export dialog state
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -623,6 +666,16 @@ export default function SuppliersPage() {
                               {t.code} {t.name}
                             </SelectItem>
                           ))}
+                          {customTrades.length > 0 && (
+                            <>
+                              <div className="border-t my-1" />
+                              {customTrades.map((t) => (
+                                <SelectItem key={t.code} value={t.code}>
+                                  {t.code} {t.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1055,6 +1108,65 @@ export default function SuppliersPage() {
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Add Category
+                    </Button>
+                  </div>
+
+                  {/* Custom Trades */}
+                  <div className="space-y-3 border-t pt-4">
+                    <Label className="text-base font-semibold">Custom Trades</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Add new trade listings that appear in the trade selector when assigning suppliers or creating jobs. Use a 3-digit code that doesn&apos;t clash with existing Databuild codes.
+                    </p>
+
+                    {/* Existing custom trades */}
+                    {customTrades.length > 0 && (
+                      <div className="border rounded-lg divide-y">
+                        {customTrades.map((t) => (
+                          <div key={t.code} className="flex items-center justify-between p-3">
+                            <div>
+                              <span className="text-sm font-mono text-muted-foreground mr-2">{t.code}</span>
+                              <span className="text-sm font-medium">{t.name}</span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="min-h-[44px] px-3"
+                              onClick={() => handleDeleteTrade(t.code)}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add new trade */}
+                    <div className="grid grid-cols-[80px_1fr] gap-2">
+                      <div>
+                        <Input
+                          value={newTradeCode}
+                          onChange={(e) => setNewTradeCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                          placeholder="Code"
+                          className="min-h-[44px] font-mono text-center"
+                          maxLength={3}
+                        />
+                      </div>
+                      <div>
+                        <Input
+                          value={newTradeName}
+                          onChange={(e) => setNewTradeName(e.target.value)}
+                          placeholder="Trade name (e.g. DEMOLITION)"
+                          className="min-h-[44px]"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleAddTrade}
+                      disabled={!newTradeCode.trim() || !newTradeName.trim()}
+                      className="w-full min-h-[44px]"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Trade
                     </Button>
                   </div>
 
