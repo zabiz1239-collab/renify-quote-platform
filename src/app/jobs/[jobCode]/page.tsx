@@ -24,8 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil } from "lucide-react";
+import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown } from "lucide-react";
 import { getJob, getEstimators, getSuppliers, saveJob } from "@/lib/supabase";
+import { TRADES } from "@/data/trades";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { toast } from "sonner";
@@ -136,6 +137,72 @@ export default function JobDetailPage() {
   const [receiveFile, setReceiveFile] = useState<File | null>(null);
   const [receiveSubmitting, setReceiveSubmitting] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
+
+  // Trade picker state
+  const [tradePickerOpen, setTradePickerOpen] = useState(false);
+  const [selectedTrades, setSelectedTrades] = useState<string[]>([]);
+  const [tradeSearch, setTradeSearch] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [tradeSaving, setTradeSaving] = useState(false);
+
+  const QUOTABLE_TRADES = TRADES.filter((t) => t.quotable);
+  const TRADE_CATEGORY_ORDER = [
+    { key: "siteworks", label: "Siteworks", range: [15, 100] },
+    { key: "structure", label: "Structure", range: [105, 195] },
+    { key: "external", label: "External", range: [200, 310] },
+    { key: "services", label: "Services", range: [315, 370] },
+    { key: "internal", label: "Internal", range: [375, 530] },
+    { key: "finishes", label: "Finishes", range: [535, 640] },
+  ] as const;
+
+  function getTradeCategory(code: string) {
+    const num = parseInt(code, 10);
+    for (const cat of TRADE_CATEGORY_ORDER) {
+      if (num >= cat.range[0] && num <= cat.range[1]) return cat.key;
+    }
+    return "other";
+  }
+
+  const GROUPED_TRADES = TRADE_CATEGORY_ORDER.map((cat) => ({
+    ...cat,
+    trades: QUOTABLE_TRADES.filter((t) => getTradeCategory(t.code) === cat.key),
+  })).filter((g) => g.trades.length > 0);
+
+  function openTradePicker() {
+    // Pre-select trades already on the job
+    setSelectedTrades((job?.trades || []).map((t) => t.code));
+    setTradeSearch("");
+    setTradePickerOpen(true);
+  }
+
+  function toggleTrade(code: string) {
+    setSelectedTrades((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }
+
+  async function handleSaveTrades() {
+    if (!job) return;
+    setTradeSaving(true);
+    try {
+      // Keep existing trade data for trades that are still selected
+      const existingMap = new Map((job.trades || []).map((t) => [t.code, t]));
+      const updatedTrades = selectedTrades.map((code) => {
+        if (existingMap.has(code)) return existingMap.get(code)!;
+        const tradeDef = TRADES.find((t) => t.code === code);
+        return { code, name: tradeDef?.name || code, quotes: [] };
+      });
+      const updatedJob: Job = { ...job, trades: updatedTrades, updatedAt: new Date().toISOString() };
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      setTradePickerOpen(false);
+      toast.success(`${updatedTrades.length} trades selected`);
+    } catch {
+      toast.error("Failed to update trades");
+    } finally {
+      setTradeSaving(false);
+    }
+  }
 
   const loadData = useCallback(async () => {
     try {
@@ -494,9 +561,29 @@ export default function JobDetailPage() {
         {/* Trade Checklist */}
         <Card>
           <CardHeader>
-            <CardTitle>Trades ({quotedTrades}/{totalTrades} quoted)</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Trades ({quotedTrades}/{totalTrades} quoted)</CardTitle>
+              <Button
+                onClick={openTradePicker}
+                variant="outline"
+                size="sm"
+                className="min-h-[36px] border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                {totalTrades === 0 ? "Select Trades" : "Edit Trades"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
+            {totalTrades === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-3">No trades selected for this job yet.</p>
+                <Button onClick={openTradePicker} className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Select Trades to Quote
+                </Button>
+              </div>
+            ) : (
             <div className="space-y-2">
               {(job.trades || []).map((trade) => {
                 const bestQuote = trade.quotes?.find((q) => q.status === "accepted") ||
@@ -567,8 +654,138 @@ export default function JobDetailPage() {
                 );
               })}
             </div>
+            )}
           </CardContent>
         </Card>
+
+        {/* Trade Picker Dialog */}
+        <Dialog open={tradePickerOpen} onOpenChange={setTradePickerOpen}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Select Trades — {job.jobCode}</DialogTitle>
+              <DialogDescription>
+                Choose which trades need quotes for this job. Existing quote data will be preserved.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{selectedTrades.length} trades selected</span>
+                <div className="flex gap-1">
+                  <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
+                    onClick={() => setSelectedTrades(QUOTABLE_TRADES.map((t) => t.code))}>
+                    All
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
+                    onClick={() => setSelectedTrades([])}>
+                    None
+                  </Button>
+                </div>
+              </div>
+              <Input
+                placeholder="Search trades..."
+                value={tradeSearch}
+                onChange={(e) => setTradeSearch(e.target.value)}
+                className="min-h-[44px]"
+              />
+              <div className="max-h-[400px] overflow-y-auto border rounded-lg">
+                {(() => {
+                  const filteredGroups = tradeSearch
+                    ? GROUPED_TRADES.map((g) => ({
+                        ...g,
+                        trades: g.trades.filter(
+                          (t) =>
+                            t.name.toLowerCase().includes(tradeSearch.toLowerCase()) ||
+                            t.code.includes(tradeSearch)
+                        ),
+                      })).filter((g) => g.trades.length > 0)
+                    : GROUPED_TRADES;
+
+                  return filteredGroups.map((group) => {
+                    const isCollapsed = collapsedGroups.has(group.key) && !tradeSearch;
+                    const groupCodes: string[] = group.trades.map((t) => t.code);
+                    const allGroupSelected = groupCodes.every((c) => selectedTrades.includes(c));
+                    const someGroupSelected = groupCodes.some((c) => selectedTrades.includes(c));
+
+                    return (
+                      <div key={group.key} className="border-b last:border-b-0">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 sticky top-0">
+                          <button
+                            type="button"
+                            onClick={() => setCollapsedGroups((prev) => {
+                              const next = new Set(Array.from(prev));
+                              if (next.has(group.key)) next.delete(group.key);
+                              else next.add(group.key);
+                              return next;
+                            })}
+                            className="p-1 min-w-[28px] min-h-[28px] flex items-center justify-center"
+                          >
+                            <ChevronDown className={`w-4 h-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                          </button>
+                          <input
+                            type="checkbox"
+                            checked={allGroupSelected}
+                            ref={(el) => { if (el) el.indeterminate = someGroupSelected && !allGroupSelected; }}
+                            onChange={() => {
+                              if (allGroupSelected) {
+                                setSelectedTrades((prev) => prev.filter((c) => !groupCodes.includes(c)));
+                              } else {
+                                setSelectedTrades((prev) => Array.from(new Set([...prev, ...groupCodes])));
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm font-medium flex-1">{group.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {groupCodes.filter((c) => selectedTrades.includes(c)).length}/{groupCodes.length}
+                          </span>
+                        </div>
+                        {!isCollapsed && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+                            {group.trades.map((trade) => (
+                              <label
+                                key={trade.code}
+                                className={`flex items-center gap-2 px-3 py-2 pl-10 cursor-pointer text-sm min-h-[44px] ${
+                                  selectedTrades.includes(trade.code) ? "bg-[#2D5E3A]/10 font-medium" : "hover:bg-muted"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTrades.includes(trade.code)}
+                                  onChange={() => toggleTrade(trade.code)}
+                                  className="w-4 h-4 flex-shrink-0"
+                                />
+                                <span className="truncate">
+                                  <span className="text-muted-foreground">{trade.code}</span>{" "}
+                                  {trade.name}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={handleSaveTrades}
+                  disabled={tradeSaving || selectedTrades.length === 0}
+                  className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                >
+                  {tradeSaving ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                  ) : (
+                    `Save ${selectedTrades.length} Trades`
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => setTradePickerOpen(false)} className="min-h-[44px]">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Cost Summary */}
         {job.budgetEstimate && (
