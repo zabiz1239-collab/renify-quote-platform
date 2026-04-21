@@ -488,6 +488,9 @@ export default function SuppliersPage() {
 
   // Export dialog state
   const [exportOpen, setExportOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const [needsEmailPage, setNeedsEmailPage] = useState(0);
+  const PAGE_SIZE = 50;
 
   function downloadCsv(rows: Supplier[], filename: string) {
     const header = "company,contact,email,phone,abn,trades,regions,status,rating,notes";
@@ -547,6 +550,14 @@ export default function SuppliersPage() {
   // Split into missing email vs has email
   const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
   const hasEmail = filtered.filter((s) => s.email && s.email.trim() !== "");
+
+  // Pagination
+  const totalPages = Math.ceil(hasEmail.length / PAGE_SIZE);
+  const pagedSuppliers = hasEmail.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const needsEmailTotalPages = Math.ceil(needsEmail.length / PAGE_SIZE);
+  const pagedNeedsEmail = needsEmail.slice(needsEmailPage * PAGE_SIZE, (needsEmailPage + 1) * PAGE_SIZE);
+  // Reset page when search changes
+  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm]);
 
   // Quick trade reassignment — move supplier to a different category
   async function handleQuickCategoryChange(supplier: Supplier, newCategoryKey: string) {
@@ -1272,7 +1283,7 @@ export default function SuppliersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {needsEmail.map((sup) => (
+                    {pagedNeedsEmail.map((sup) => (
                       <TableRow key={sup.id} className="bg-amber-50/30">
                         <TableCell>
                           <div>
@@ -1318,6 +1329,17 @@ export default function SuppliersPage() {
                     ))}
                   </TableBody>
                 </Table>
+                {needsEmailTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 px-2">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {needsEmailPage * PAGE_SIZE + 1}–{Math.min((needsEmailPage + 1) * PAGE_SIZE, needsEmail.length)} of {needsEmail.length}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="min-h-[44px]" disabled={needsEmailPage === 0} onClick={() => setNeedsEmailPage((p) => p - 1)}>Previous</Button>
+                      <Button variant="outline" size="sm" className="min-h-[44px]" disabled={needsEmailPage >= needsEmailTotalPages - 1} onClick={() => setNeedsEmailPage((p) => p + 1)}>Next</Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -1342,7 +1364,7 @@ export default function SuppliersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {hasEmail.map((sup) => (
+                  {pagedSuppliers.map((sup) => (
                     <TableRow key={sup.id}>
                       <TableCell>
                         <div>
@@ -1405,6 +1427,33 @@ export default function SuppliersPage() {
                   ))}
                 </TableBody>
               </Table>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 px-2">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, hasEmail.length)} of {hasEmail.length}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px]"
+                      disabled={page === 0}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px]"
+                      disabled={page >= totalPages - 1}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
           </>
