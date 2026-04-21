@@ -19,6 +19,7 @@ export const TRADES = [
   { code: "195", name: "SISALATION", quotable: true, searchQuery: "sisalation reflective foil insulation supply install" },
   { code: "200", name: "FASCIA AND GUTTER", quotable: true, searchQuery: "fascia gutter installation roofing contractor residential" },
   { code: "205", name: "METAL ROOFING", quotable: true, searchQuery: "metal roofing contractor installation residential new home" },
+  { code: "206", name: "TILED ROOF", quotable: true, searchQuery: "tiled roof contractor installation residential terracotta concrete tile" },
   { code: "260", name: "FALL PROTECTION", quotable: true, searchQuery: "fall protection safety scaffolding edge protection construction" },
   { code: "270", name: "WINDOWS", quotable: true, searchQuery: "window supplier manufacturer aluminium residential new home" },
   { code: "275", name: "FLYSCREENS", quotable: true, searchQuery: "flyscreen supplier installer residential windows doors" },
