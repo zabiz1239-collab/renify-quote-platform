@@ -122,5 +122,13 @@ export interface AppSettings {
   defaultMarkupPercent: number;
   tradeMarkupPercents?: Record<string, number>; // Per-trade markup overrides
   customTrades?: { code: string; name: string }[]; // User-defined trade categories
+  supplierCategories?: SupplierCategory[]; // Custom supplier categories with search keywords
   adminEmail: string;
+}
+
+// Custom supplier category with keywords for Google Places scraping
+export interface SupplierCategory {
+  key: string;        // e.g. "demolition"
+  label: string;      // e.g. "Demolition"
+  keywords: string[]; // e.g. ["demolition contractor", "house demolition", "strip out"]
 }

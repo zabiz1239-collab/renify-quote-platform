@@ -31,11 +31,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download } from "lucide-react";
-import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings } from "@/lib/supabase";
+import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X } from "lucide-react";
+import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Supplier } from "@/types";
+import type { Supplier, SupplierCategory } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
 import { toast } from "sonner";
@@ -111,11 +111,21 @@ export default function SuppliersPage() {
   const [scraperRegions, setScraperRegions] = useState<string[]>(DEFAULT_REGIONS);
   const [scraperSaving, setScraperSaving] = useState(false);
 
+  // Category management state
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [customCategories, setCustomCategories] = useState<SupplierCategory[]>([]);
+  const [newCatLabel, setNewCatLabel] = useState("");
+  const [newCatKeywords, setNewCatKeywords] = useState("");
+  const [editingCatKey, setEditingCatKey] = useState<string | null>(null);
+  const [editCatLabel, setEditCatLabel] = useState("");
+  const [editCatKeywords, setEditCatKeywords] = useState("");
+
   useEffect(() => {
     loadSuppliers();
-    // Load regions from settings
+    // Load regions and custom categories from settings
     getSettings().then((s) => {
       if (s.regions && s.regions.length > 0) setScraperRegions(s.regions);
+      if (s.supplierCategories) setCustomCategories(s.supplierCategories);
     }).catch(() => {});
   }, []);
 
@@ -324,11 +334,25 @@ export default function SuppliersPage() {
     setScraperResults([]);
     setSelectedResults(new Set());
     try {
-      const tradeName = TRADES.find((t) => t.code === scraperTrade)?.name || scraperTrade;
+      // Check if it's a custom category (starts with "custom_")
+      let tradeName: string;
+      let searchKeywords: string | undefined;
+      if (scraperTrade.startsWith("custom_")) {
+        const catKey = scraperTrade.replace("custom_", "");
+        const cat = customCategories.find((c) => c.key === catKey);
+        tradeName = cat?.label || catKey;
+        searchKeywords = cat?.keywords.join(" ") || tradeName;
+      } else {
+        tradeName = TRADES.find((t) => t.code === scraperTrade)?.name || scraperTrade;
+      }
       const res = await fetch("/api/scraper", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trade: tradeName, region: scraperRegion, preview: true }),
+        body: JSON.stringify({
+          trade: searchKeywords || tradeName,
+          region: scraperRegion,
+          preview: true,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Search failed");
@@ -380,6 +404,43 @@ export default function SuppliersPage() {
     } finally {
       setScraperSaving(false);
     }
+  }
+
+  // Category management functions
+  async function handleAddCategory() {
+    if (!newCatLabel.trim()) return;
+    const key = newCatLabel.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+    const keywords = newCatKeywords.split(",").map((k) => k.trim()).filter(Boolean);
+    const newCat: SupplierCategory = { key, label: newCatLabel.trim(), keywords };
+    const updated = [...customCategories, newCat];
+    setCustomCategories(updated);
+    setNewCatLabel("");
+    setNewCatKeywords("");
+    // Save to settings
+    const settings = await getSettings();
+    await saveSettings({ ...settings, supplierCategories: updated });
+    toast.success(`Category "${newCat.label}" added`);
+  }
+
+  async function handleUpdateCategory() {
+    if (!editingCatKey || !editCatLabel.trim()) return;
+    const keywords = editCatKeywords.split(",").map((k) => k.trim()).filter(Boolean);
+    const updated = customCategories.map((c) =>
+      c.key === editingCatKey ? { ...c, label: editCatLabel.trim(), keywords } : c
+    );
+    setCustomCategories(updated);
+    setEditingCatKey(null);
+    const settings = await getSettings();
+    await saveSettings({ ...settings, supplierCategories: updated });
+    toast.success("Category updated");
+  }
+
+  async function handleDeleteCategory(key: string) {
+    const updated = customCategories.filter((c) => c.key !== key);
+    setCustomCategories(updated);
+    const settings = await getSettings();
+    await saveSettings({ ...settings, supplierCategories: updated });
+    toast.success("Category removed");
   }
 
   // Export dialog state
@@ -440,6 +501,55 @@ export default function SuppliersPage() {
       s.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Split into missing email vs has email
+  const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
+  const hasEmail = filtered.filter((s) => s.email && s.email.trim() !== "");
+
+  // Quick trade reassignment — move supplier to a different category
+  async function handleQuickCategoryChange(supplier: Supplier, newCategoryKey: string) {
+    // Check built-in categories first
+    const group = GROUPED_TRADES.find((g) => g.key === newCategoryKey);
+    if (group) {
+      const newTradeCodes = group.trades.map((t) => t.code);
+      const updated = { ...supplier, trades: newTradeCodes };
+      try {
+        await saveSupplierToDb(updated);
+        setSuppliers((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
+        toast.success(`${supplier.company} moved to ${group.label}`);
+      } catch {
+        toast.error("Failed to update supplier");
+      }
+      return;
+    }
+    // Custom category — store the category key as a special trade code
+    const customCat = customCategories.find((c) => c.key === newCategoryKey);
+    if (customCat) {
+      // For custom categories, keep existing trades but add a tag prefix
+      const updated = { ...supplier, trades: [`cat_${customCat.key}`] };
+      try {
+        await saveSupplierToDb(updated);
+        setSuppliers((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
+        toast.success(`${supplier.company} moved to ${customCat.label}`);
+      } catch {
+        toast.error("Failed to update supplier");
+      }
+    }
+  }
+
+  // Get the primary category for a supplier (based on majority of their trades)
+  function getSupplierCategory(sup: Supplier): string {
+    if (sup.trades.length === 0) return "";
+    // Check for custom category tag
+    const customTag = sup.trades.find((t) => t.startsWith("cat_"));
+    if (customTag) return customTag.replace("cat_", "");
+    const counts: Record<string, number> = {};
+    for (const code of sup.trades) {
+      const cat = getTradeCategory(code);
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  }
+
   const statusColor = (status: Supplier["status"]) =>
     STATUS_OPTIONS.find((o) => o.value === status)?.color || "";
 
@@ -468,6 +578,10 @@ export default function SuppliersPage() {
                 </span>
               </Button>
             </label>
+            <Button onClick={() => setCategoryOpen(true)} variant="outline" className="min-h-[44px]">
+              <Tags className="w-4 h-4 mr-2" />
+              Categories
+            </Button>
             <Button onClick={() => { setScraperOpen(true); setScraperResults([]); setSelectedResults(new Set()); }} variant="outline" className="min-h-[44px]">
               <Search className="w-4 h-4 mr-2" />
               Find Local Trades
@@ -494,6 +608,16 @@ export default function SuppliersPage() {
                           <SelectValue placeholder="Select trade" />
                         </SelectTrigger>
                         <SelectContent>
+                          {customCategories.length > 0 && (
+                            <>
+                              {customCategories.map((cat) => (
+                                <SelectItem key={`custom_${cat.key}`} value={`custom_${cat.key}`}>
+                                  {cat.label} {cat.keywords.length > 0 && <span className="text-muted-foreground">({cat.keywords.length} keywords)</span>}
+                                </SelectItem>
+                              ))}
+                              <div className="border-t my-1" />
+                            </>
+                          )}
                           {TRADES.filter((t) => t.quotable).map((t) => (
                             <SelectItem key={t.code} value={t.code}>
                               {t.code} {t.name}
@@ -828,6 +952,124 @@ export default function SuppliersPage() {
                 </div>
               </DialogContent>
             </Dialog>
+            {/* Categories Dialog */}
+            <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}>
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Manage Categories</DialogTitle>
+                  <DialogDescription>
+                    Add custom categories with search keywords. When you use &quot;Find Local Trades&quot;, these keywords tell Google what to look for.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  {/* Existing custom categories */}
+                  {customCategories.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Your Categories</Label>
+                      <div className="border rounded-lg divide-y">
+                        {customCategories.map((cat) => (
+                          <div key={cat.key} className="p-3">
+                            {editingCatKey === cat.key ? (
+                              <div className="space-y-2">
+                                <Input
+                                  value={editCatLabel}
+                                  onChange={(e) => setEditCatLabel(e.target.value)}
+                                  placeholder="Category name"
+                                  className="min-h-[44px]"
+                                />
+                                <Input
+                                  value={editCatKeywords}
+                                  onChange={(e) => setEditCatKeywords(e.target.value)}
+                                  placeholder="Keywords (comma separated)"
+                                  className="min-h-[44px]"
+                                />
+                                <div className="flex gap-2">
+                                  <Button size="sm" onClick={handleUpdateCategory} className="min-h-[44px]">Save</Button>
+                                  <Button size="sm" variant="outline" onClick={() => setEditingCatKey(null)} className="min-h-[44px]">Cancel</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium">{cat.label}</p>
+                                  {cat.keywords.length > 0 && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Keywords: {cat.keywords.join(", ")}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex gap-1 flex-shrink-0">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="min-h-[44px] px-3"
+                                    onClick={() => {
+                                      setEditingCatKey(cat.key);
+                                      setEditCatLabel(cat.label);
+                                      setEditCatKeywords(cat.keywords.join(", "));
+                                    }}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="min-h-[44px] px-3"
+                                    onClick={() => handleDeleteCategory(cat.key)}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add new category */}
+                  <div className="space-y-3 border-t pt-4">
+                    <Label className="text-sm font-medium">Add New Category</Label>
+                    <Input
+                      value={newCatLabel}
+                      onChange={(e) => setNewCatLabel(e.target.value)}
+                      placeholder="Category name (e.g. Demolition)"
+                      className="min-h-[44px]"
+                    />
+                    <div className="space-y-1">
+                      <Input
+                        value={newCatKeywords}
+                        onChange={(e) => setNewCatKeywords(e.target.value)}
+                        placeholder="Search keywords, comma separated"
+                        className="min-h-[44px]"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        These keywords are used when searching Google Places. E.g. for &quot;Framers&quot; you might use: timber framing contractor, house framing, wall frame installer
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleAddCategory}
+                      disabled={!newCatLabel.trim()}
+                      className="w-full min-h-[44px]"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Category
+                    </Button>
+                  </div>
+
+                  {/* Built-in categories reference */}
+                  <div className="space-y-2 border-t pt-4">
+                    <Label className="text-xs text-muted-foreground">Built-in categories (always available)</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {TRADE_CATEGORY_ORDER.map((cat) => (
+                        <Badge key={cat.key} variant="secondary" className="text-xs">{cat.label}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             {/* Export CSV Dialog */}
             <Dialog open={exportOpen} onOpenChange={setExportOpen}>
               <DialogContent className="max-w-sm">
@@ -897,10 +1139,81 @@ export default function SuppliersPage() {
             </CardContent>
           </Card>
         ) : (
+          <>
+          {/* Needs Email Update — shown at top */}
+          {needsEmail.length > 0 && (
+            <Card className="border-amber-300 bg-amber-50/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2 text-amber-800">
+                  <AlertCircle className="w-5 h-5" />
+                  Needs Email Update ({needsEmail.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Company</TableHead>
+                      <TableHead className="hidden md:table-cell">Phone</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="w-[180px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {needsEmail.map((sup) => (
+                      <TableRow key={sup.id} className="bg-amber-50/30">
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{sup.company}</p>
+                            {sup.contact && <p className="text-xs text-muted-foreground">{sup.contact}</p>}
+                            {sup.notes && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{sup.notes}</p>}
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {sup.phone || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={getSupplierCategory(sup)}
+                            onValueChange={(val) => handleQuickCategoryChange(sup, val)}
+                          >
+                            <SelectTrigger className="min-h-[44px] w-[140px]">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TRADE_CATEGORY_ORDER.map((cat) => (
+                                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+                              ))}
+                              {customCategories.length > 0 && <div className="border-t my-1" />}
+                              {customCategories.map((cat) => (
+                                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEdit(sup)}
+                            className="min-h-[44px] px-3"
+                          >
+                            <Pencil className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>
-                Suppliers ({filtered.length}
+                Suppliers ({hasEmail.length}
                 {searchTerm ? ` of ${suppliers.length}` : ""})
               </CardTitle>
             </CardHeader>
@@ -911,13 +1224,13 @@ export default function SuppliersPage() {
                     <TableHead>Company</TableHead>
                     <TableHead className="hidden md:table-cell">Contact</TableHead>
                     <TableHead className="hidden md:table-cell">Email</TableHead>
-                    <TableHead className="hidden lg:table-cell">Trades</TableHead>
+                    <TableHead>Category</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-[180px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((sup) => (
+                  {hasEmail.map((sup) => (
                     <TableRow key={sup.id}>
                       <TableCell>
                         <div>
@@ -934,34 +1247,20 @@ export default function SuppliersPage() {
                       <TableCell className="hidden md:table-cell">
                         {sup.email}
                       </TableCell>
-                      <TableCell className="hidden lg:table-cell">
-                        <button
-                          onClick={() => openEdit(sup)}
-                          className="flex flex-wrap gap-1 hover:opacity-70 transition-opacity"
-                          title="Click to edit trades"
+                      <TableCell>
+                        <Select
+                          value={getSupplierCategory(sup)}
+                          onValueChange={(val) => handleQuickCategoryChange(sup, val)}
                         >
-                          {sup.trades.length === 0 ? (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">
-                              + Add trades
-                            </Badge>
-                          ) : (
-                            <>
-                              {sup.trades.slice(0, 3).map((code) => {
-                                const trade = TRADES.find((t) => t.code === code);
-                                return (
-                                  <Badge key={code} variant="secondary" className="text-xs" title={code}>
-                                    {trade?.name || code}
-                                  </Badge>
-                                );
-                              })}
-                              {sup.trades.length > 3 && (
-                                <Badge variant="secondary" className="text-xs">
-                                  +{sup.trades.length - 3}
-                                </Badge>
-                              )}
-                            </>
-                          )}
-                        </button>
+                          <SelectTrigger className="min-h-[44px] w-[140px]">
+                            <SelectValue placeholder="Category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {TRADE_CATEGORY_ORDER.map((cat) => (
+                              <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell>
                         <Badge className={statusColor(sup.status)}>
@@ -996,6 +1295,7 @@ export default function SuppliersPage() {
               </Table>
             </CardContent>
           </Card>
+          </>
         )}
       </div>
     </AuthLayout>
