@@ -3,6 +3,15 @@
 ## Project
 Renify Quote Platform v2 — a Next.js web app for managing construction supplier quotes with OneDrive integration.
 
+## Deployment Rule
+
+After ANY code change, always deploy to Vercel. Never assume localhost is sufficient.
+- Commit changes with `git add` + `git commit`
+- Push to remote: `git push origin clean-main`
+- Vercel auto-deploys from the push — no manual deploy needed
+- Always confirm the Vercel deployment URL is live and working
+- Never tell the user to check localhost — they use the Vercel deployment
+
 ## Tech Stack
 - Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - Microsoft MSAL (OneDrive + email via Graph API)
