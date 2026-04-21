@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X, ArrowRightLeft } from "lucide-react";
 import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -100,6 +100,11 @@ export default function SuppliersPage() {
   const [tradeSearch, setTradeSearch] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Bulk reassign state
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkReassigning, setBulkReassigning] = useState(false);
 
   // Scraper modal state
   const [scraperOpen, setScraperOpen] = useState(false);
@@ -556,6 +561,53 @@ export default function SuppliersPage() {
   const pagedSuppliers = hasEmail.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const needsEmailTotalPages = Math.ceil(needsEmail.length / PAGE_SIZE);
   const pagedNeedsEmail = needsEmail.slice(needsEmailPage * PAGE_SIZE, (needsEmailPage + 1) * PAGE_SIZE);
+  function toggleBulkSelect(id: string) {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllOnPage() {
+    const ids = pagedSuppliers.map((s) => s.id);
+    setBulkSelected((prev) => new Set([...Array.from(prev), ...ids]));
+  }
+
+  function clearBulkSelection() {
+    setBulkSelected(new Set());
+  }
+
+  async function handleBulkReassign(categoryKey: string) {
+    if (bulkSelected.size === 0) return;
+    setBulkReassigning(true);
+    try {
+      const group = GROUPED_TRADES.find((g) => g.key === categoryKey);
+      if (!group) {
+        toast.error("Category not found");
+        return;
+      }
+      const newTradeCodes = group.trades.map((t) => t.code);
+      const toUpdate = suppliers.filter((s) => bulkSelected.has(s.id));
+      const updated = toUpdate.map((s) => ({ ...s, trades: newTradeCodes }));
+      await saveSuppliersBulk(updated);
+      setSuppliers((prev) =>
+        prev.map((s) => {
+          const u = updated.find((x) => x.id === s.id);
+          return u || s;
+        })
+      );
+      toast.success(`${updated.length} suppliers moved to ${group.label}`);
+      setBulkSelected(new Set());
+      setBulkMode(false);
+    } catch {
+      toast.error("Failed to reassign suppliers");
+    } finally {
+      setBulkReassigning(false);
+    }
+  }
+
   // Reset page when search changes
   useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm]);
 
@@ -635,6 +687,14 @@ export default function SuppliersPage() {
             <Button onClick={() => setCategoryOpen(true)} variant="outline" className="min-h-[44px]">
               <Tags className="w-4 h-4 mr-2" />
               Categories
+            </Button>
+            <Button
+              onClick={() => { setBulkMode(!bulkMode); setBulkSelected(new Set()); }}
+              variant={bulkMode ? "default" : "outline"}
+              className={`min-h-[44px] ${bulkMode ? "bg-[#2D5E3A] hover:bg-[#2D5E3A]/90" : ""}`}
+            >
+              <ArrowRightLeft className="w-4 h-4 mr-2" />
+              {bulkMode ? "Exit Reassign" : "Reassign"}
             </Button>
             <Button onClick={() => { setScraperOpen(true); setScraperResults([]); setSelectedResults(new Set()); }} variant="outline" className="min-h-[44px]">
               <Search className="w-4 h-4 mr-2" />
@@ -1249,6 +1309,39 @@ export default function SuppliersPage() {
           />
         </div>
 
+        {/* Bulk Reassign Action Bar */}
+        {bulkMode && (
+          <Card className="border-[#2D5E3A] bg-[#2D5E3A]/5">
+            <CardContent className="py-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <ArrowRightLeft className="w-4 h-4 text-[#2D5E3A]" />
+                  <span className="text-sm font-medium">{bulkSelected.size} selected</span>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectAllOnPage}>Select page</Button>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={clearBulkSelection}>Clear</Button>
+                </div>
+                {bulkSelected.size > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-muted-foreground">Move to:</span>
+                    {TRADE_CATEGORY_ORDER.map((cat) => (
+                      <Button
+                        key={cat.key}
+                        variant="outline"
+                        size="sm"
+                        className="min-h-[36px] text-xs"
+                        disabled={bulkReassigning}
+                        onClick={() => handleBulkReassign(cat.key)}
+                      >
+                        {cat.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {loading ? (
           <p className="text-muted-foreground">Loading suppliers...</p>
         ) : suppliers.length === 0 ? (
@@ -1276,6 +1369,7 @@ export default function SuppliersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {bulkMode && <TableHead className="w-[44px]" />}
                       <TableHead>Company</TableHead>
                       <TableHead className="hidden md:table-cell">Phone</TableHead>
                       <TableHead>Category</TableHead>
@@ -1284,7 +1378,17 @@ export default function SuppliersPage() {
                   </TableHeader>
                   <TableBody>
                     {pagedNeedsEmail.map((sup) => (
-                      <TableRow key={sup.id} className="bg-amber-50/30">
+                      <TableRow key={sup.id} className={bulkSelected.has(sup.id) ? "bg-[#2D5E3A]/5" : "bg-amber-50/30"}>
+                        {bulkMode && (
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={bulkSelected.has(sup.id)}
+                              onChange={() => toggleBulkSelect(sup.id)}
+                              className="w-4 h-4"
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div>
                             <p className="font-medium">{sup.company}</p>
@@ -1355,6 +1459,7 @@ export default function SuppliersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {bulkMode && <TableHead className="w-[44px]" />}
                     <TableHead>Company</TableHead>
                     <TableHead className="hidden md:table-cell">Contact</TableHead>
                     <TableHead className="hidden md:table-cell">Email</TableHead>
@@ -1365,7 +1470,17 @@ export default function SuppliersPage() {
                 </TableHeader>
                 <TableBody>
                   {pagedSuppliers.map((sup) => (
-                    <TableRow key={sup.id}>
+                    <TableRow key={sup.id} className={bulkSelected.has(sup.id) ? "bg-[#2D5E3A]/5" : ""}>
+                      {bulkMode && (
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={bulkSelected.has(sup.id)}
+                            onChange={() => toggleBulkSelect(sup.id)}
+                            className="w-4 h-4"
+                          />
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div>
                           <p className="font-medium">{sup.company}</p>
