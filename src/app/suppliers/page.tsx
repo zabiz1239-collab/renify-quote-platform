@@ -95,7 +95,7 @@ export default function SuppliersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [tradeSearch, setTradeSearch] = useState("");
@@ -551,7 +551,7 @@ export default function SuppliersPage() {
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = !categoryFilter || getSupplierCategory(s) === categoryFilter;
+    const matchesCategory = !categoryFilter || categoryFilter === "all" || getSupplierCategory(s) === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
@@ -1315,7 +1315,7 @@ export default function SuppliersPage() {
               <SelectValue placeholder="All Trades" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Trades</SelectItem>
+              <SelectItem value="all">All Trades</SelectItem>
               {TRADE_CATEGORY_ORDER.map((cat) => (
                 <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
               ))}
