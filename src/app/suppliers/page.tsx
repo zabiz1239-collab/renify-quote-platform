@@ -95,6 +95,7 @@ export default function SuppliersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [tradeSearch, setTradeSearch] = useState("");
@@ -545,12 +546,14 @@ export default function SuppliersPage() {
     setExportOpen(false);
   }
 
-  const filtered = suppliers.filter(
-    (s) =>
+  const filtered = suppliers.filter((s) => {
+    const matchesSearch =
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      s.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = !categoryFilter || getSupplierCategory(s) === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
 
   // Split into missing email vs has email
   const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
@@ -608,8 +611,8 @@ export default function SuppliersPage() {
     }
   }
 
-  // Reset page when search changes
-  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm]);
+  // Reset page when search or filter changes
+  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm, categoryFilter]);
 
   // Quick trade reassignment — move supplier to a different category
   async function handleQuickCategoryChange(supplier: Supplier, newCategoryKey: string) {
@@ -1300,13 +1303,27 @@ export default function SuppliersPage() {
           </div>
         )}
 
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-3 items-center">
           <Input
             placeholder="Search suppliers..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="max-w-sm min-h-[44px]"
           />
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[160px] min-h-[44px]">
+              <SelectValue placeholder="All Trades" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Trades</SelectItem>
+              {TRADE_CATEGORY_ORDER.map((cat) => (
+                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+              ))}
+              {customCategories.map((cat) => (
+                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Bulk Reassign Action Bar */}
