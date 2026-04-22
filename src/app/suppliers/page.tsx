@@ -76,6 +76,7 @@ const EMPTY_FORM = {
   company: "",
   contact: "",
   email: "",
+  cc: "",
   phone: "",
   abn: "",
   trades: [] as string[],
@@ -175,6 +176,7 @@ export default function SuppliersPage() {
       company: sup.company,
       contact: sup.contact,
       email: sup.email,
+      cc: sup.cc || "",
       phone: sup.phone,
       abn: sup.abn || "",
       trades: [...sup.trades],
@@ -197,8 +199,8 @@ export default function SuppliersPage() {
     setSaving(true);
     try {
       const sup: Supplier = editingId
-        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined }
-        : { id: uuidv4(), ...form, abn: form.abn || undefined };
+        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined, cc: form.cc || undefined }
+        : { id: uuidv4(), ...form, abn: form.abn || undefined, cc: form.cc || undefined };
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -852,6 +854,17 @@ export default function SuppliersPage() {
                         className={`min-h-[44px] ${touched && !form.email ? "border-red-500" : ""}`}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>CC Email <span className="text-muted-foreground font-normal">(optional — copied on all quote emails)</span></Label>
+                    <Input
+                      type="email"
+                      value={form.cc}
+                      onChange={(e) => setForm((p) => ({ ...p, cc: e.target.value }))}
+                      placeholder="e.g. manager@company.com.au"
+                      className="min-h-[44px]"
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

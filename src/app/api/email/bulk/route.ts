@@ -42,6 +42,7 @@ async function fetchAllSuppliers(): Promise<Supplier[]> {
     email: r.email as string,
     phone: r.phone as string,
     abn: (r.abn as string) || undefined,
+    cc: (r.cc as string) || undefined,
     trades: r.trades as string[],
     regions: r.regions as string[],
     status: r.status as Supplier["status"],
@@ -189,6 +190,7 @@ export async function POST(request: NextRequest) {
     try {
       await sendEmail({
         to: [supplier.email],
+        cc: supplier.cc ? [supplier.cc] : undefined,
         subject,
         htmlBody,
         attachments: emailAttachments,

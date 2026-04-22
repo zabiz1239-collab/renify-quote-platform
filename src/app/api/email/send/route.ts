@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
     try {
       await sendEmail({
         to: [supplier.email],
+        cc: supplier.cc ? [supplier.cc] : undefined,
         subject,
         htmlBody,
       });

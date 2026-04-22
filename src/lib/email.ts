@@ -9,6 +9,7 @@ interface EmailAttachment {
 interface SendEmailParams {
   accessToken?: string; // kept for API compatibility but no longer used
   to: string[];
+  cc?: string[];
   subject: string;
   htmlBody: string;
   attachments?: EmailAttachment[];
@@ -30,6 +31,7 @@ function getTransporter() {
 // Send an email via SMTP from est@renify.com.au
 export async function sendEmail({
   to,
+  cc,
   subject,
   htmlBody,
   attachments = [],
@@ -39,6 +41,7 @@ export async function sendEmail({
   await transporter.sendMail({
     from: `"Renify Estimating" <${process.env.SMTP_USER || "est@renify.com.au"}>`,
     to: to.join(", "),
+    ...(cc && cc.length > 0 ? { cc: cc.join(", ") } : {}),
     subject,
     html: htmlBody,
     attachments: attachments.map((att) => ({
