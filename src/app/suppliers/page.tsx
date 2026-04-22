@@ -551,7 +551,7 @@ export default function SuppliersPage() {
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = !categoryFilter || categoryFilter === "all" || getSupplierCategory(s) === categoryFilter;
+    const matchesCategory = !categoryFilter || categoryFilter === "all" || s.trades.includes(categoryFilter);
     return matchesSearch && matchesCategory;
   });
 
@@ -1311,16 +1311,13 @@ export default function SuppliersPage() {
             className="max-w-sm min-h-[44px]"
           />
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-[160px] min-h-[44px]">
+            <SelectTrigger className="w-[220px] min-h-[44px]">
               <SelectValue placeholder="All Trades" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-72">
               <SelectItem value="all">All Trades</SelectItem>
-              {TRADE_CATEGORY_ORDER.map((cat) => (
-                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
-              ))}
-              {customCategories.map((cat) => (
-                <SelectItem key={cat.key} value={cat.key}>{cat.label}</SelectItem>
+              {[...QUOTABLE_TRADES, ...customTrades.map((t) => ({ ...t, quotable: true as const }))].map((t) => (
+                <SelectItem key={t.code} value={t.code}>{t.code} {t.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
