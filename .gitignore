@@ -36,3 +36,4 @@ tsconfig.tsbuildinfo
 # Notes & drafts
 *.txt
 .env*.local
+tmp_suppliers*.sql
