@@ -76,6 +76,7 @@ const EMPTY_FORM = {
   company: "",
   contact: "",
   email: "",
+  cc: "",
   phone: "",
   abn: "",
   trades: [] as string[],
@@ -95,6 +96,7 @@ export default function SuppliersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [tradeSearch, setTradeSearch] = useState("");
@@ -174,6 +176,7 @@ export default function SuppliersPage() {
       company: sup.company,
       contact: sup.contact,
       email: sup.email,
+      cc: sup.cc || "",
       phone: sup.phone,
       abn: sup.abn || "",
       trades: [...sup.trades],
@@ -196,8 +199,8 @@ export default function SuppliersPage() {
     setSaving(true);
     try {
       const sup: Supplier = editingId
-        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined }
-        : { id: uuidv4(), ...form, abn: form.abn || undefined };
+        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined, cc: form.cc || undefined }
+        : { id: uuidv4(), ...form, abn: form.abn || undefined, cc: form.cc || undefined };
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -545,12 +548,14 @@ export default function SuppliersPage() {
     setExportOpen(false);
   }
 
-  const filtered = suppliers.filter(
-    (s) =>
+  const filtered = suppliers.filter((s) => {
+    const matchesSearch =
       s.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      s.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = !categoryFilter || categoryFilter === "all" || s.trades.includes(categoryFilter);
+    return matchesSearch && matchesCategory;
+  });
 
   // Split into missing email vs has email
   const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
@@ -608,8 +613,8 @@ export default function SuppliersPage() {
     }
   }
 
-  // Reset page when search changes
-  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm]);
+  // Reset page when search or filter changes
+  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm, categoryFilter]);
 
   // Quick trade reassignment — move supplier to a different category
   async function handleQuickCategoryChange(supplier: Supplier, newCategoryKey: string) {
@@ -849,6 +854,17 @@ export default function SuppliersPage() {
                         className={`min-h-[44px] ${touched && !form.email ? "border-red-500" : ""}`}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>CC Email <span className="text-muted-foreground font-normal">(optional — copied on all quote emails)</span></Label>
+                    <Input
+                      type="email"
+                      value={form.cc}
+                      onChange={(e) => setForm((p) => ({ ...p, cc: e.target.value }))}
+                      placeholder="e.g. manager@company.com.au"
+                      className="min-h-[44px]"
+                    />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1300,13 +1316,24 @@ export default function SuppliersPage() {
           </div>
         )}
 
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-3 items-center">
           <Input
             placeholder="Search suppliers..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="max-w-sm min-h-[44px]"
           />
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[220px] min-h-[44px]">
+              <SelectValue placeholder="All Trades" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value="all">All Trades</SelectItem>
+              {[...QUOTABLE_TRADES, ...customTrades.map((t) => ({ ...t, quotable: true as const }))].map((t) => (
+                <SelectItem key={t.code} value={t.code}>{t.code} {t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Bulk Reassign Action Bar */}

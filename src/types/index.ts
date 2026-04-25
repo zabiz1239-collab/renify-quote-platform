@@ -17,6 +17,7 @@ export interface Supplier {
   email: string;
   phone: string;
   abn?: string;
+  cc?: string;
   trades: string[];
   regions: string[];
   status: "verified" | "unverified" | "blacklisted";
