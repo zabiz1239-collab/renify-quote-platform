@@ -13,9 +13,9 @@
   - match: C:\Users\Zabi\Projects\renify-quote-platform\node_modules\lucide-react\dist\esm\icons\alarm-smoke.js.map
 
 ## Step Results
-- PASS npm run build (exit=0, 41.7s)
-- PASS npm run lint (exit=0, 5.2s)
-- PASS npm run test (exit=0, 7.4s)
+- PASS npm run build (exit=0, 30.4s)
+- PASS npm run lint (exit=0, 4.2s)
+- PASS npm run test (exit=0, 6s)
 
 ## Gaps
 - None.
@@ -106,7 +106,7 @@ Route (app)                              Size     First Load JS
 
  Test Files  6 passed (6)
       Tests  59 passed (59)
-   Start at  15:57:34
-   Duration  5.69s (transform 1.11s, setup 2.38s, import 1.53s, tests 256ms, environment 25.09s)
+   Start at  00:02:19
+   Duration  4.58s (transform 1.18s, setup 2.00s, import 1.59s, tests 220ms, environment 19.94s)
 
 ```

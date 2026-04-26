@@ -1,10 +1,35 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Lazy client construction so `next build` "Collecting page data" can import
+// route modules without requiring runtime env vars to be present at build time.
+// Eagerly calling createClient() at module load broke Vercel preview builds
+// (`Error: supabaseUrl is required` during page-data collection).
+let _client: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+function getClient(): SupabaseClient {
+  if (_client) return _client;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "Supabase env vars missing: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY"
+    );
+  }
+  _client = createClient(url, key);
+  return _client;
+}
+
+// Proxy preserves the `supabase.from(...)` / `supabase.auth.*` call surface
+// used across the codebase — every property access constructs the client
+// on demand the first time it is touched.
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = getClient();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
 
 // ── Settings ──────────────────────────────────────────────────────
 
