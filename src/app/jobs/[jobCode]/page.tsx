@@ -374,13 +374,29 @@ export default function JobDetailPage() {
     if (!job) return;
     setUploadingZone(category);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("jobCode", job.jobCode);
-      formData.append("address", job.address);
-      formData.append("category", category);
+      // Upload PDF directly to Supabase Storage from the browser. This bypasses
+      // Vercel's 4.5MB request-body limit (which is what was blocking plans).
+      const storagePath = `${job.jobCode}/${category}/${file.name}`;
+      const { error: storageErr } = await supabase.storage
+        .from("project-documents")
+        .upload(storagePath, file, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+      if (storageErr) throw new Error(`Storage upload failed: ${storageErr.message}`);
 
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      // Now tell the API where the file landed (small JSON, no body-limit issue).
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobCode: job.jobCode,
+          address: job.address,
+          category,
+          fileName: file.name,
+          storagePath,
+        }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       toast.success(`Uploaded ${file.name}`);

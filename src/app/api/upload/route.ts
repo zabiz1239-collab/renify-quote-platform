@@ -17,27 +17,34 @@ const CATEGORY_FOLDERS: Record<UploadCategory, string> = {
   other: "Other",
 };
 
+// OneDrive Graph PUT supports up to 4MB. Larger files would need a resumable
+// upload session, which we don't implement yet — skip OneDrive above this size.
+const ONEDRIVE_SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024;
+
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let formData: FormData;
+  let body: {
+    jobCode?: string;
+    address?: string;
+    category?: string;
+    fileName?: string;
+    storagePath?: string;
+  };
   try {
-    formData = await request.formData();
+    body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const file = formData.get("file") as File | null;
-  const jobCode = formData.get("jobCode") as string | null;
-  const address = formData.get("address") as string | null;
-  const category = formData.get("category") as string | null;
+  const { jobCode, address, category, fileName, storagePath } = body;
 
-  if (!file || !jobCode || !address || !category) {
+  if (!jobCode || !address || !category || !fileName || !storagePath) {
     return NextResponse.json(
-      { error: "Missing required fields: file, jobCode, address, category" },
+      { error: "Missing required fields: jobCode, address, category, fileName, storagePath" },
       { status: 400 }
     );
   }
@@ -49,7 +56,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+  if (!fileName.toLowerCase().endsWith(".pdf")) {
     return NextResponse.json(
       { error: "Only PDF files are accepted" },
       { status: 400 }
@@ -59,49 +66,55 @@ export async function POST(request: NextRequest) {
   const accessToken = session.accessToken;
 
   try {
-    const buffer = await file.arrayBuffer();
-
-    // 1. Upload to Supabase Storage (primary — always available for email attachments)
-    const storagePath = `${jobCode}/${category}/${file.name}`;
-    const { error: storageErr } = await supabase.storage
+    // The browser uploaded the file directly to Supabase Storage (bypasses
+    // Vercel's 4.5MB request-body limit). Verify it landed.
+    const { data: fileBlob, error: dlErr } = await supabase.storage
       .from("project-documents")
-      .upload(storagePath, Buffer.from(buffer), {
-        contentType: "application/pdf",
-        upsert: true,
-      });
+      .download(storagePath);
 
-    if (storageErr) {
-      console.error("[Upload] Supabase Storage failed:", storageErr);
-      throw new Error(`Storage upload failed: ${storageErr.message}`);
-    }
-
-    // 2. Upload to OneDrive (best-effort — for user browsing)
-    try {
-      const settings = await getSettings();
-      const rootPath = settings.oneDriveRootPath;
-      const jobFolder = `${jobCode} - ${address}`;
-      const categoryFolder = CATEGORY_FOLDERS[category as UploadCategory];
-
-      await createFolder(accessToken, rootPath, jobFolder);
-      await createFolder(accessToken, `${rootPath}/${jobFolder}`, categoryFolder);
-      await uploadFile(
-        accessToken,
-        `${rootPath}/${jobFolder}/${categoryFolder}`,
-        file.name,
-        buffer
+    if (dlErr || !fileBlob) {
+      console.error("[Upload] File not found in Supabase Storage:", dlErr);
+      return NextResponse.json(
+        { error: `File not found in storage: ${storagePath}` },
+        { status: 404 }
       );
-    } catch (onedriveErr) {
-      console.warn("[Upload] OneDrive upload failed (non-blocking):", onedriveErr);
     }
 
-    // 3. Update job documents in Supabase
+    // OneDrive sync (best-effort, for user browsing).
+    if (fileBlob.size <= ONEDRIVE_SIMPLE_UPLOAD_LIMIT) {
+      try {
+        const settings = await getSettings();
+        const rootPath = settings.oneDriveRootPath;
+        const jobFolder = `${jobCode} - ${address}`;
+        const categoryFolder = CATEGORY_FOLDERS[category as UploadCategory];
+
+        const buffer = await fileBlob.arrayBuffer();
+
+        await createFolder(accessToken, rootPath, jobFolder);
+        await createFolder(accessToken, `${rootPath}/${jobFolder}`, categoryFolder);
+        await uploadFile(
+          accessToken,
+          `${rootPath}/${jobFolder}/${categoryFolder}`,
+          fileName,
+          buffer
+        );
+      } catch (onedriveErr) {
+        console.warn("[Upload] OneDrive upload failed (non-blocking):", onedriveErr);
+      }
+    } else {
+      console.log(
+        `[Upload] Skipped OneDrive sync for ${fileName} (${fileBlob.size} bytes > ${ONEDRIVE_SIMPLE_UPLOAD_LIMIT}). File is in Supabase Storage.`
+      );
+    }
+
+    // Update job documents in Supabase
     const job = await getJob(jobCode);
     if (job) {
       const newDoc: JobDocument = {
         category: category as JobDocument["category"],
-        name: file.name,
+        name: fileName,
         type: "upload",
-        fileName: file.name,
+        fileName,
         storagePath,
       };
       job.documents = [...(job.documents || []), newDoc];
@@ -109,7 +122,7 @@ export async function POST(request: NextRequest) {
       await saveJob(job);
     }
 
-    return NextResponse.json({ success: true, fileName: file.name, storagePath });
+    return NextResponse.json({ success: true, fileName, storagePath });
   } catch (err: unknown) {
     console.error("[Upload] Failed:", err);
     const message = err instanceof Error ? err.message : "Upload failed";
