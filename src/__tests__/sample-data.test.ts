@@ -10,8 +10,6 @@ describe('Sample Data - Jobs', () => {
     for (const job of SAMPLE_JOBS) {
       expect(job.jobCode).toBeTruthy();
       expect(job.address).toBeTruthy();
-      expect(job.client).toBeDefined();
-      expect(job.client.name).toBeTruthy();
       expect(job.region).toBeTruthy();
       expect(job.trades).toBeDefined();
       expect(Array.isArray(job.trades)).toBe(true);
@@ -31,7 +29,6 @@ describe('Sample Data - Jobs', () => {
     const gee15 = SAMPLE_JOBS.find((j) => j.jobCode === 'GEE15');
     expect(gee15).toBeDefined();
     expect(gee15!.address).toBe('15 Moorabool St Geelong');
-    expect(gee15!.client.name).toBe('Tom & Rachel Nguyen');
     expect(gee15!.region).toBe('Geelong');
     expect(gee15!.buildType).toBe('Dual Occ');
     expect(gee15!.storeys).toBe('Double');

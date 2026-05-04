@@ -6,7 +6,6 @@ function makeJobWithQuotes(trades: { code: string; name: string; quotes: { statu
   return {
     jobCode: 'TEST01',
     address: '1 Test St',
-    client: { name: 'Test' },
     region: 'Western',
     buildType: 'New Build',
     storeys: 'Single',

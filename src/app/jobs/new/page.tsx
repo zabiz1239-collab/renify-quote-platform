@@ -69,9 +69,6 @@ export default function NewJobPage() {
   const [form, setForm] = useState({
     jobCode: "",
     address: "",
-    clientName: "",
-    clientPhone: "",
-    clientEmail: "",
     region: "",
     buildType: "" as Job["buildType"] | "",
     storeys: "" as Job["storeys"] | "",
@@ -96,9 +93,6 @@ export default function NewJobPage() {
         const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
         // Parse the Client_Info format
-        let clientName = "";
-        let clientPhone = "";
-        let clientEmail = "";
         let landAddress = "";
         let lotNo = "";
 
@@ -107,29 +101,6 @@ export default function NewJobPage() {
           if (!row || row.length === 0) continue;
 
           const label = String(row[0] || "").trim();
-
-          // Owner section
-          if (label === "Name/s" && row[1]) clientName = String(row[1]).trim();
-          if (label === "Telephone" && row[1] && !clientPhone) {
-            // Only take owner phone, not builder phone
-            const section = rows.slice(0, i).reverse().find((r) => {
-              const s = String((r as string[])[0] || "");
-              return s.includes("OWNER") || s.includes("BUILDER");
-            });
-            if (section && String((section as string[])[0]).includes("OWNER")) {
-              clientPhone = String(row[1]).trim();
-            }
-          }
-          if (label === "Facsimile" && row[3]) {
-            // Email is in column D (index 3) on the Facsimile row
-            const section = rows.slice(0, i).reverse().find((r) => {
-              const s = String((r as string[])[0] || "");
-              return s.includes("OWNER") || s.includes("BUILDER");
-            });
-            if (section && String((section as string[])[0]).includes("OWNER")) {
-              clientEmail = String(row[3]).trim();
-            }
-          }
 
           // Land section
           if (label === "Land Address" && row[1]) landAddress = String(row[1]).trim();
@@ -142,9 +113,6 @@ export default function NewJobPage() {
           ...prev,
           jobCode: jobCode || prev.jobCode,
           address: landAddress || prev.address,
-          clientName: clientName || prev.clientName,
-          clientPhone: clientPhone || prev.clientPhone,
-          clientEmail: clientEmail || prev.clientEmail,
           region: landAddress.toLowerCase().includes("bonnie brook") || landAddress.toLowerCase().includes("melton") || landAddress.toLowerCase().includes("taylors") ? "Western" : prev.region,
           buildType: prev.buildType || "Renovation",
           storeys: prev.storeys || "Single",
@@ -219,7 +187,7 @@ export default function NewJobPage() {
     }
 
     setTouched(true);
-    if (!form.jobCode || !form.address || !form.clientName || !form.region || !form.buildType || !form.storeys) {
+    if (!form.jobCode || !form.address || !form.region || !form.buildType || !form.storeys) {
       setError("Please fill in all required fields marked with *.");
       return;
     }
@@ -235,11 +203,6 @@ export default function NewJobPage() {
       const job: Job = {
         jobCode: form.jobCode,
         address: form.address,
-        client: {
-          name: form.clientName,
-          phone: form.clientPhone || undefined,
-          email: form.clientEmail || undefined,
-        },
         region: form.region,
         buildType: form.buildType as Job["buildType"],
         storeys: form.storeys as Job["storeys"],
@@ -443,50 +406,6 @@ export default function NewJobPage() {
                       const val = e.target.value;
                       if (val === "" || parseFloat(val) >= 0) updateField("budgetEstimate", val);
                     }}
-                    className="min-h-[44px]"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Client</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="clientName">Client Name *</Label>
-                <Input
-                  id="clientName"
-                  required
-                  placeholder="Client name"
-                  value={form.clientName}
-                  onChange={(e) => updateField("clientName", e.target.value)}
-                  className={`min-h-[44px] ${touched && !form.clientName ? "border-red-500" : ""}`}
-                />
-                {touched && !form.clientName && <p className="text-xs text-red-500">Client Name is required</p>}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="clientPhone">Phone</Label>
-                  <Input
-                    id="clientPhone"
-                    type="tel"
-                    placeholder="e.g. 0400 000 000"
-                    value={form.clientPhone}
-                    onChange={(e) => updateField("clientPhone", e.target.value)}
-                    className="min-h-[44px]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="clientEmail">Email</Label>
-                  <Input
-                    id="clientEmail"
-                    type="email"
-                    placeholder="Email address"
-                    value={form.clientEmail}
-                    onChange={(e) => updateField("clientEmail", e.target.value)}
                     className="min-h-[44px]"
                   />
                 </div>

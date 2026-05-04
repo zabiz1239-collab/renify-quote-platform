@@ -66,9 +66,6 @@ export default function JobDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     address: "",
-    clientName: "",
-    clientPhone: "",
-    clientEmail: "",
     region: "",
     buildType: "" as Job["buildType"],
     storeys: "" as Job["storeys"],
@@ -81,9 +78,6 @@ export default function JobDetailPage() {
     if (!job) return;
     setEditForm({
       address: job.address,
-      clientName: job.client.name,
-      clientPhone: job.client.phone || "",
-      clientEmail: job.client.email || "",
       region: job.region,
       buildType: job.buildType,
       storeys: job.storeys,
@@ -95,7 +89,7 @@ export default function JobDetailPage() {
 
   async function handleEditSubmit() {
     if (!job) return;
-    if (!editForm.address || !editForm.clientName || !editForm.region || !editForm.buildType || !editForm.storeys) {
+    if (!editForm.address || !editForm.region || !editForm.buildType || !editForm.storeys) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -104,11 +98,6 @@ export default function JobDetailPage() {
       const updatedJob: Job = {
         ...job,
         address: editForm.address,
-        client: {
-          name: editForm.clientName,
-          phone: editForm.clientPhone || undefined,
-          email: editForm.clientEmail || undefined,
-        },
         region: editForm.region,
         buildType: editForm.buildType,
         storeys: editForm.storeys,
@@ -444,9 +433,6 @@ export default function JobDetailPage() {
           <CardHeader><CardTitle>Job Details</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><span className="text-muted-foreground">Client:</span> <span className="font-medium">{job.client.name}</span></div>
-              {job.client.phone && <div><span className="text-muted-foreground">Phone:</span> {job.client.phone}</div>}
-              {job.client.email && <div><span className="text-muted-foreground">Email:</span> {job.client.email}</div>}
               <div><span className="text-muted-foreground">Region:</span> {job.region}</div>
               <div><span className="text-muted-foreground">Build Type:</span> {job.buildType}</div>
               <div><span className="text-muted-foreground">Storeys:</span> {job.storeys}</div>
@@ -997,36 +983,6 @@ export default function JobDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Client Name *</Label>
-                <Input
-                  value={editForm.clientName}
-                  onChange={(e) => setEditForm((f) => ({ ...f, clientName: e.target.value }))}
-                  className="min-h-[44px]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Client Phone</Label>
-                  <Input
-                    type="tel"
-                    value={editForm.clientPhone}
-                    onChange={(e) => setEditForm((f) => ({ ...f, clientPhone: e.target.value }))}
-                    className="min-h-[44px]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Client Email</Label>
-                  <Input
-                    type="email"
-                    value={editForm.clientEmail}
-                    onChange={(e) => setEditForm((f) => ({ ...f, clientEmail: e.target.value }))}
-                    className="min-h-[44px]"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
                 <Label>Region *</Label>
                 <select
                   value={editForm.region}
@@ -1093,7 +1049,7 @@ export default function JobDetailPage() {
               <div className="flex gap-2 pt-2">
                 <Button
                   onClick={handleEditSubmit}
-                  disabled={editSaving || !editForm.address || !editForm.clientName || !editForm.region}
+                  disabled={editSaving || !editForm.address || !editForm.region}
                   className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                 >
                   {editSaving ? (

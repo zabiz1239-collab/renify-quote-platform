@@ -82,7 +82,6 @@ export function getSampleContext(): TemplateContext {
     job: {
       jobCode: "BIR40",
       address: "40 Birmingham St Spotswood",
-      client: { name: "Jane Doe" },
       region: "Western",
       buildType: "New Build",
       storeys: "Double",

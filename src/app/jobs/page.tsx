@@ -95,12 +95,8 @@ export default function JobsPage() {
                       </div>
                       <p className="text-sm text-muted-foreground">{job.address}</p>
                     </CardHeader>
-                    <CardContent>
+                      <CardContent>
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Client</span>
-                          <span>{job.client.name}</span>
-                        </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Region</span>
                           <span>{job.region}</span>

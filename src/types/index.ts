@@ -74,11 +74,6 @@ export interface JobDocument {
 export interface Job {
   jobCode: string;
   address: string;
-  client: {
-    name: string;
-    phone?: string;
-    email?: string;
-  };
   region: string;
   buildType: "New Build" | "Dual Occ" | "Extension" | "Renovation";
   storeys: "Single" | "Double" | "Triple";

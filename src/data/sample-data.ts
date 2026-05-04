@@ -122,11 +122,6 @@ export const SAMPLE_JOBS: Job[] = [
   {
     jobCode: "SPOT21",
     address: "21 Mason St Spotswood",
-    client: {
-      name: "James & Michelle Chen",
-      phone: "0422 111 000",
-      email: "jchen@gmail.com",
-    },
     region: "Western",
     buildType: "Renovation",
     storeys: "Single",
@@ -177,11 +172,6 @@ export const SAMPLE_JOBS: Job[] = [
   {
     jobCode: "HUNT833",
     address: "Lot 833 Garrett St Huntly",
-    client: {
-      name: "Peter & Sandra Wilson",
-      phone: "0433 222 111",
-      email: "pwilson@outlook.com",
-    },
     region: "Northern",
     buildType: "New Build",
     storeys: "Single",
@@ -247,11 +237,6 @@ export const SAMPLE_JOBS: Job[] = [
   {
     jobCode: "BIR40",
     address: "40 Birmingham St Spotswood",
-    client: {
-      name: "David & Karen Lee",
-      phone: "0444 333 222",
-      email: "dlee@live.com",
-    },
     region: "Western",
     buildType: "New Build",
     storeys: "Double",
@@ -322,11 +307,6 @@ export const SAMPLE_JOBS: Job[] = [
   {
     jobCode: "GEE15",
     address: "15 Moorabool St Geelong",
-    client: {
-      name: "Tom & Rachel Nguyen",
-      phone: "0455 444 333",
-      email: "tnguyen@gmail.com",
-    },
     region: "Geelong",
     buildType: "Dual Occ",
     storeys: "Double",

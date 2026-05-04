@@ -250,11 +250,6 @@ function jobRowToJob(r: Record<string, unknown>): Job {
   return {
     jobCode: r.job_code as string,
     address: r.address as string,
-    client: {
-      name: r.client_name as string,
-      phone: (r.client_phone as string) || undefined,
-      email: (r.client_email as string) || undefined,
-    },
     region: r.region as string,
     buildType: r.build_type as Job["buildType"],
     storeys: r.storeys as Job["storeys"],
@@ -285,9 +280,6 @@ export async function saveJob(job: Job): Promise<void> {
   const row = {
     job_code: job.jobCode,
     address: job.address,
-    client_name: job.client.name,
-    client_phone: job.client.phone || null,
-    client_email: job.client.email || null,
     region: job.region,
     build_type: job.buildType,
     storeys: job.storeys,

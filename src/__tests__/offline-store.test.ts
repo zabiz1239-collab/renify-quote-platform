@@ -15,7 +15,6 @@ import type { Job, Supplier } from '@/types';
 const makeJob = (jobCode: string): Job => ({
   jobCode,
   address: '123 Test St',
-  client: { name: 'Test Client' },
   region: 'Western',
   buildType: 'New Build',
   storeys: 'Single',

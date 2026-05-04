@@ -22,7 +22,6 @@ function createTestJob(): Job {
   return {
     jobCode: "TEST01",
     address: "123 Test St, Melbourne",
-    client: { name: "Test Client", phone: "0400000000", email: "client@test.com" },
     region: "Western",
     buildType: "New Build",
     storeys: "Double",
