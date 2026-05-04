@@ -2,7 +2,6 @@
 
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +37,6 @@ interface Selection {
 export default function SendQuotesPage() {
   usePageTitle("Send Quotes");
   useSession();
-  const router = useRouter();
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -142,7 +140,16 @@ export default function SendQuotesPage() {
         toast.success(`Sent ${data.sent} email${data.sent !== 1 ? "s" : ""}`);
       }
       setPreviewOpen(false);
-      router.push(`/jobs/${encodeURIComponent(selectedJob.jobCode)}`);
+      // Stay on this screen — refresh job data and clear supplier selection so user
+      // can immediately send another trade without re-picking the job.
+      setCheckedSuppliers(new Set());
+      setSupplierSearch("");
+      try {
+        const jobsData = await getJobs();
+        setJobs(jobsData);
+      } catch {
+        /* keep stale job data — toast above already shown */
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Send failed";
       toast.error(msg);
