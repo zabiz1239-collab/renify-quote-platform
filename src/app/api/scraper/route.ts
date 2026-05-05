@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
                                     contact: "",
                                     email: "",
                                     phone: place.formatted_phone_number || "",
+                                    website: place.website || undefined,
                                     trades: [],
                                     regions: [region],
                                     status: "unverified",

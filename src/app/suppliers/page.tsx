@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X, ArrowRightLeft } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X, ArrowRightLeft, Mail } from "lucide-react";
 import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -72,6 +72,14 @@ const STATUS_OPTIONS = [
   { value: "blacklisted", label: "Blacklisted", color: "bg-red-100 text-red-800" },
 ] as const;
 
+interface EmailResult {
+  supplierId: string;
+  company: string;
+  websiteTried: string;
+  email: string | null;
+  reason?: string;
+}
+
 const EMPTY_FORM = {
   company: "",
   contact: "",
@@ -79,6 +87,7 @@ const EMPTY_FORM = {
   cc: "",
   phone: "",
   abn: "",
+  website: "",
   trades: [] as string[],
   regions: [] as string[],
   status: "unverified" as Supplier["status"],
@@ -117,6 +126,14 @@ export default function SuppliersPage() {
   const [selectedResults, setSelectedResults] = useState<Set<number>>(new Set());
   const [scraperRegions, setScraperRegions] = useState<string[]>(DEFAULT_REGIONS);
   const [scraperSaving, setScraperSaving] = useState(false);
+
+  // Email finder modal state
+  const [emailFinderOpen, setEmailFinderOpen] = useState(false);
+  const [emailFinderRunning, setEmailFinderRunning] = useState(false);
+  const [emailFinderResults, setEmailFinderResults] = useState<EmailResult[]>([]);
+  const [emailFinderApprove, setEmailFinderApprove] = useState<Set<string>>(new Set());
+  const [emailFinderEdits, setEmailFinderEdits] = useState<Record<string, string>>({});
+  const [emailFinderSaving, setEmailFinderSaving] = useState(false);
 
   // Category management state
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -179,6 +196,7 @@ export default function SuppliersPage() {
       cc: sup.cc || "",
       phone: sup.phone,
       abn: sup.abn || "",
+      website: sup.website || "",
       trades: [...sup.trades],
       regions: [...sup.regions],
       status: sup.status,
@@ -199,8 +217,8 @@ export default function SuppliersPage() {
     setSaving(true);
     try {
       const sup: Supplier = editingId
-        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined, cc: form.cc || undefined }
-        : { id: uuidv4(), ...form, abn: form.abn || undefined, cc: form.cc || undefined };
+        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined }
+        : { id: uuidv4(), ...form, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined };
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -430,6 +448,82 @@ export default function SuppliersPage() {
     }
   }
 
+  function openEmailFinder() {
+    setEmailFinderResults([]);
+    setEmailFinderApprove(new Set());
+    setEmailFinderEdits({});
+    setEmailFinderRunning(false);
+    setEmailFinderSaving(false);
+    setEmailFinderOpen(true);
+  }
+
+  async function runEmailFinder() {
+    if (suppliersNeedingEmail.length === 0) return;
+    setEmailFinderRunning(true);
+    setEmailFinderResults([]);
+    setEmailFinderApprove(new Set());
+    setEmailFinderEdits({});
+    try {
+      const res = await fetch("/api/scraper/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplierIds: suppliersNeedingEmail.map((s) => s.id) }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        processed?: number;
+        found?: number;
+        results?: EmailResult[];
+      };
+      if (!res.ok) throw new Error(data.error || "Email finder failed");
+
+      const results = data.results || [];
+      const approved = new Set(results.filter((result) => result.email).map((result) => result.supplierId));
+      const edits: Record<string, string> = {};
+      results.forEach((result) => {
+        if (result.email) edits[result.supplierId] = result.email;
+      });
+
+      setEmailFinderResults(results);
+      setEmailFinderApprove(approved);
+      setEmailFinderEdits(edits);
+      toast.success(`Processed ${data.processed ?? results.length} suppliers; found ${data.found ?? approved.size} emails`);
+    } catch (err) {
+      console.error("Email finder failed:", err);
+      toast.error("Failed to find emails");
+    } finally {
+      setEmailFinderRunning(false);
+    }
+  }
+
+  async function saveApprovedEmails() {
+    const updates = emailFinderResults.flatMap((result) => {
+      if (!emailFinderApprove.has(result.supplierId)) return [];
+      const email = (emailFinderEdits[result.supplierId] ?? result.email ?? "").trim();
+      const supplier = suppliers.find((s) => s.id === result.supplierId);
+      return supplier && email ? [{ ...supplier, email }] : [];
+    });
+
+    if (updates.length === 0) {
+      toast.error("No emails selected");
+      return;
+    }
+
+    setEmailFinderSaving(true);
+    try {
+      await saveSuppliersBulk(updates);
+      const updatesById = new Map(updates.map((supplier) => [supplier.id, supplier]));
+      setSuppliers((prev) => prev.map((supplier) => updatesById.get(supplier.id) || supplier));
+      toast.success(`Saved ${updates.length} emails`);
+      setEmailFinderOpen(false);
+    } catch (err) {
+      console.error("Failed to save emails:", err);
+      toast.error("Failed to save emails");
+    } finally {
+      setEmailFinderSaving(false);
+    }
+  }
+
   // Category management functions
   async function handleAddCategory() {
     if (!newCatLabel.trim()) return;
@@ -501,7 +595,7 @@ export default function SuppliersPage() {
   const PAGE_SIZE = 50;
 
   function downloadCsv(rows: Supplier[], filename: string) {
-    const header = "company,contact,email,phone,abn,trades,regions,status,rating,notes";
+    const header = "company,contact,email,phone,abn,website,trades,regions,status,rating,notes";
     const csvRows = rows.map((s) => {
       const escape = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
       const tradeNames = s.trades
@@ -513,6 +607,7 @@ export default function SuppliersPage() {
         escape(s.email),
         escape(s.phone),
         escape(s.abn || ""),
+        escape(s.website || ""),
         escape(tradeNames),
         escape(s.regions.join("; ")),
         escape(s.status),
@@ -560,6 +655,19 @@ export default function SuppliersPage() {
   // Split into missing email vs has email
   const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
   const hasEmail = filtered.filter((s) => s.email && s.email.trim() !== "");
+  const suppliersNeedingEmail = useMemo(
+    () => suppliers.filter((s) => {
+      const hasNoEmail = !s.email || s.email.trim() === "";
+      const hasWebsite = Boolean(s.website?.trim());
+      const hasNotesUrl = /https?:\/\//i.test(s.notes || "");
+      return hasNoEmail && (hasWebsite || hasNotesUrl);
+    }),
+    [suppliers]
+  );
+  const approvedEmailCount = emailFinderResults.filter((result) => {
+    const email = (emailFinderEdits[result.supplierId] ?? result.email ?? "").trim();
+    return emailFinderApprove.has(result.supplierId) && Boolean(email);
+  }).length;
 
   // Pagination
   const totalPages = Math.ceil(hasEmail.length / PAGE_SIZE);
@@ -705,6 +813,15 @@ export default function SuppliersPage() {
               <Search className="w-4 h-4 mr-2" />
               Find Local Trades
             </Button>
+            <Button
+              onClick={openEmailFinder}
+              variant="outline"
+              disabled={suppliersNeedingEmail.length === 0}
+              className="min-h-[44px]"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              Find missing emails ({suppliersNeedingEmail.length})
+            </Button>
             <Button onClick={openCreate} className="min-h-[44px]">
               <Plus className="w-4 h-4 mr-2" />
               Add Supplier
@@ -818,6 +935,109 @@ export default function SuppliersPage() {
                     </div>
                   )}
                 </div>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={emailFinderOpen} onOpenChange={setEmailFinderOpen}>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Find Missing Emails</DialogTitle>
+                  <DialogDescription>
+                    Search supplier websites and URLs in notes for missing email addresses.
+                  </DialogDescription>
+                </DialogHeader>
+                {emailFinderResults.length === 0 ? (
+                  <div className="space-y-4 pt-4">
+                    <p className="text-sm text-muted-foreground">
+                      {Math.min(suppliersNeedingEmail.length, 30)} of {suppliersNeedingEmail.length} suppliers will be checked in this run.
+                    </p>
+                    <Button
+                      onClick={runEmailFinder}
+                      disabled={emailFinderRunning || suppliersNeedingEmail.length === 0}
+                      className="w-full min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                    >
+                      {emailFinderRunning ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Scraping...</>
+                      ) : (
+                        <><Mail className="w-4 h-4 mr-2" /> Start scraping</>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pt-4">
+                    <div className="border rounded-lg divide-y max-h-[60vh] overflow-y-auto">
+                      {emailFinderResults.map((result) => {
+                        const emailValue = emailFinderEdits[result.supplierId] ?? result.email ?? "";
+                        const canApprove = Boolean(emailValue.trim());
+                        return (
+                          <div key={result.supplierId} className="grid grid-cols-[auto_1fr] gap-3 p-3">
+                            <input
+                              type="checkbox"
+                              checked={emailFinderApprove.has(result.supplierId)}
+                              disabled={!canApprove}
+                              onChange={() => {
+                                if (!canApprove) return;
+                                setEmailFinderApprove((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(result.supplierId)) next.delete(result.supplierId);
+                                  else next.add(result.supplierId);
+                                  return next;
+                                });
+                              }}
+                              className="w-4 h-4 mt-3"
+                            />
+                            <div className="min-w-0 space-y-2">
+                              <div>
+                                <p className="text-sm font-medium truncate">{result.company}</p>
+                                <p className="text-xs text-muted-foreground truncate">{result.websiteTried}</p>
+                              </div>
+                              {result.email ? (
+                                <Input
+                                  type="email"
+                                  value={emailValue}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    setEmailFinderEdits((prev) => ({ ...prev, [result.supplierId]: nextValue }));
+                                    if (!nextValue.trim()) {
+                                      setEmailFinderApprove((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(result.supplierId);
+                                        return next;
+                                      });
+                                    }
+                                  }}
+                                  className="min-h-[44px]"
+                                />
+                              ) : (
+                                <p className="text-sm text-red-600">{result.reason || "No email found"}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={saveApprovedEmails}
+                        disabled={approvedEmailCount === 0 || emailFinderSaving}
+                        className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                      >
+                        {emailFinderSaving ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                        ) : (
+                          `Save ${approvedEmailCount} emails`
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setEmailFinderOpen(false)}
+                        disabled={emailFinderSaving}
+                        className="min-h-[44px]"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </DialogContent>
             </Dialog>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1057,6 +1277,18 @@ export default function SuppliersPage() {
                         value={form.abn}
                         onChange={(e) =>
                           setForm((p) => ({ ...p, abn: e.target.value }))
+                        }
+                        className="min-h-[44px]"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Website</Label>
+                      <Input
+                        type="url"
+                        placeholder="https://example.com.au"
+                        value={form.website || ""}
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, website: e.target.value }))
                         }
                         className="min-h-[44px]"
                       />
