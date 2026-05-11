@@ -32,7 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Download, AlertCircle, Tags, X, ArrowRightLeft, Mail } from "lucide-react";
-import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings } from "@/lib/supabase";
+import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings, updateSupplierEmail } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import {
@@ -83,6 +83,8 @@ interface EmailResult {
   websiteTried: string;
   email: string | null;
   reason?: string;
+  saved?: boolean;
+  saveError?: string;
 }
 
 const EMPTY_FORM = {
@@ -526,21 +528,41 @@ export default function SuppliersPage() {
         error?: string;
         processed?: number;
         found?: number;
+        saved?: number;
         results?: EmailResult[];
       };
       if (!res.ok) throw new Error(data.error || "Email finder failed");
 
       const results = data.results || [];
-      const approved = new Set(results.filter((result) => result.email).map((result) => result.supplierId));
+      const approved = new Set(
+        results
+          .filter((result) => result.email && !result.saved)
+          .map((result) => result.supplierId)
+      );
       const edits: Record<string, string> = {};
       results.forEach((result) => {
         if (result.email) edits[result.supplierId] = result.email;
       });
+      const savedUpdates = results.flatMap((result) => {
+        if (!result.saved || !result.email) return [];
+        return [{ supplierId: result.supplierId, email: result.email }];
+      });
+      if (savedUpdates.length > 0) {
+        const updatesById = new Map(savedUpdates.map((update) => [update.supplierId, update.email]));
+        setSuppliers((prev) =>
+          prev.map((supplier) => {
+            const email = updatesById.get(supplier.id);
+            return email ? { ...supplier, email } : supplier;
+          })
+        );
+      }
 
       setEmailFinderResults(results);
       setEmailFinderApprove(approved);
       setEmailFinderEdits(edits);
-      toast.success(`Processed ${data.processed ?? results.length} suppliers; found ${data.found ?? approved.size} emails`);
+      toast.success(
+        `Processed ${data.processed ?? results.length} suppliers; found ${data.found ?? 0} emails; saved ${data.saved ?? savedUpdates.length}`
+      );
     } catch (err) {
       console.error("Email finder failed:", err);
       toast.error("Failed to find emails");
@@ -564,7 +586,9 @@ export default function SuppliersPage() {
 
     setEmailFinderSaving(true);
     try {
-      await saveSuppliersBulk(updates);
+      await Promise.all(
+        updates.map((supplier) => updateSupplierEmail(supplier.id, supplier.email))
+      );
       const updatesById = new Map(updates.map((supplier) => [supplier.id, supplier]));
       setSuppliers((prev) => prev.map((supplier) => updatesById.get(supplier.id) || supplier));
       toast.success(`Saved ${updates.length} emails`);
@@ -1069,12 +1093,20 @@ export default function SuppliersPage() {
                                         next.delete(result.supplierId);
                                         return next;
                                       });
+                                    } else if (result.saved && nextValue.trim() !== result.email) {
+                                      setEmailFinderApprove((prev) => new Set(prev).add(result.supplierId));
                                     }
                                   }}
                                   className="min-h-[44px]"
                                 />
                               ) : (
                                 <p className="text-sm text-red-600">{result.reason || "No email found"}</p>
+                              )}
+                              {result.saved && (
+                                <p className="text-xs text-green-700">Saved to supplier</p>
+                              )}
+                              {result.saveError && (
+                                <p className="text-xs text-red-600">Save failed: {result.saveError}</p>
                               )}
                             </div>
                           </div>

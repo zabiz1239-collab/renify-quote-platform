@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getSuppliers } from "@/lib/supabase";
+import { getSuppliers, updateSupplierEmail } from "@/lib/supabase";
 import type { Supplier } from "@/types";
 
 export const maxDuration = 300;
@@ -54,6 +54,8 @@ interface EmailResult {
   websiteTried: string;
   email: string | null;
   reason?: string;
+  saved?: boolean;
+  saveError?: string;
 }
 
 function extractWebsite(supplier: Supplier): string | null {
@@ -216,11 +218,26 @@ export async function POST(request: NextRequest) {
       }
 
       const email = await findEmailForUrl(websiteTried);
+      let saved = false;
+      let saveError: string | undefined;
+
+      if (email) {
+        try {
+          await updateSupplierEmail(supplier.id, email);
+          saved = true;
+        } catch (error) {
+          saveError = error instanceof Error ? error.message : "Failed to update supplier email";
+          console.error(`[Email Finder] Failed to save ${supplier.id}:`, saveError);
+        }
+      }
+
       results.push({
         supplierId: supplier.id,
         company: supplier.company,
         websiteTried,
         email,
+        saved,
+        saveError,
         reason: email ? undefined : "No email found",
       });
     }
@@ -228,6 +245,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       processed: results.length,
       found: results.filter((result) => result.email).length,
+      saved: results.filter((result) => result.saved).length,
       results,
     });
   } catch (error: unknown) {

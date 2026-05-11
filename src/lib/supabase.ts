@@ -200,6 +200,14 @@ export async function saveSuppliersBulk(suppliers: Supplier[]): Promise<void> {
   if (error) throw error;
 }
 
+export async function updateSupplierEmail(id: string, email: string): Promise<void> {
+  const { error } = await supabase
+    .from("qp_suppliers")
+    .update({ email })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function deleteSupplier(id: string): Promise<void> {
   const { error } = await supabase.from("qp_suppliers").delete().eq("id", id);
   if (error) throw error;
