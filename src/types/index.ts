@@ -10,6 +10,16 @@ export interface Trade {
 }
 
 // Supplier
+export type JobDocumentCategory =
+  | "architectural"
+  | "engineering"
+  | "scope"
+  | "colour_selection"
+  | "energy_rating"
+  | "other";
+
+export type AttachmentPreferences = Record<string, JobDocumentCategory[]>;
+
 export interface Supplier {
   id: string;
   company: string;
@@ -25,6 +35,7 @@ export interface Supplier {
   rating: number;
   notes: string;
   lastContacted?: string;
+  attachmentPreferences?: AttachmentPreferences;
   // Cross-job stats (calculated at read time, not stored)
   totalRequests?: number;
   totalResponses?: number;
@@ -63,7 +74,7 @@ export interface Quote {
 
 // Job Document (link or uploaded file reference)
 export interface JobDocument {
-  category: "architectural" | "engineering" | "scope" | "colour_selection" | "energy_rating" | "other";
+  category: JobDocumentCategory;
   name: string;
   type: "link" | "upload";
   url?: string;

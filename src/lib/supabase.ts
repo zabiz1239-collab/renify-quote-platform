@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
+import { normalizeAttachmentPreferences } from "@/lib/attachments";
 
 // Lazy client construction so `next build` "Collecting page data" can import
 // route modules without requiring runtime env vars to be present at build time.
@@ -151,6 +152,7 @@ export async function getSuppliers(): Promise<Supplier[]> {
     rating: r.rating as number,
     notes: r.notes as string,
     lastContacted: (r.last_contacted as string) || undefined,
+    attachmentPreferences: normalizeAttachmentPreferences(r.attachment_preferences),
   }));
 }
 
@@ -170,6 +172,7 @@ export async function saveSupplier(sup: Supplier): Promise<void> {
     rating: sup.rating,
     notes: sup.notes,
     last_contacted: sup.lastContacted || null,
+    attachment_preferences: sup.attachmentPreferences || {},
   };
   const { error } = await supabase.from("qp_suppliers").upsert(row);
   if (error) throw error;
@@ -191,6 +194,7 @@ export async function saveSuppliersBulk(suppliers: Supplier[]): Promise<void> {
     rating: sup.rating,
     notes: sup.notes,
     last_contacted: sup.lastContacted || null,
+    attachment_preferences: sup.attachmentPreferences || {},
   }));
   const { error } = await supabase.from("qp_suppliers").upsert(rows);
   if (error) throw error;

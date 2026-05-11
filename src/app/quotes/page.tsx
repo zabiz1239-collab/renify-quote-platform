@@ -21,11 +21,17 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Send, AlertTriangle, Check, Loader2, Mail, Search, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Send, AlertTriangle, Check, Loader2, Mail, Search, CheckCircle, Clock, XCircle, FileText } from "lucide-react";
 import { getJobs, getSuppliers, getTemplates, saveJob } from "@/lib/supabase";
 import { Trash2 } from "lucide-react";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import {
+  getAttachmentCategoryLabel,
+  getAttachmentPreferenceCategories,
+  getJobDocumentKey,
+} from "@/lib/attachments";
 import type { Job, Supplier, EmailTemplate } from "@/types";
 import { toast } from "sonner";
 
@@ -47,6 +53,8 @@ export default function SendQuotesPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [checkedSuppliers, setCheckedSuppliers] = useState<Set<string>>(new Set());
+  const [attachmentSelections, setAttachmentSelections] = useState<Record<string, string[]>>({});
+  const [activeAttachmentSupplierId, setActiveAttachmentSupplierId] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -74,6 +82,24 @@ export default function SendQuotesPage() {
   const activeJobs = jobs.filter((j) => j.status === "active" || j.status === "quoting");
   const selectedJob = jobs.find((j) => j.jobCode === selectedJobCode);
   const tradeMeta = TRADES.find((t) => t.code === selectedTradeCode);
+  const documentOptions = useMemo(
+    () =>
+      (selectedJob?.documents || [])
+        .map((doc, index) => ({
+          doc,
+          index,
+          key: getJobDocumentKey(doc, index),
+        }))
+        .filter(({ doc }) => doc.type === "upload"),
+    [selectedJob]
+  );
+  const selectedSupplierList = useMemo(
+    () =>
+      Array.from(checkedSuppliers)
+        .map((supplierId) => suppliers.find((supplier) => supplier.id === supplierId))
+        .filter((supplier): supplier is Supplier => Boolean(supplier)),
+    [checkedSuppliers, suppliers]
+  );
 
   // Get all suppliers for the selected trade (no region filter — show everything)
   const tradeSuppliers = useMemo(() => {
@@ -110,12 +136,67 @@ export default function SendQuotesPage() {
     setCheckedSuppliers(new Set());
   }
 
+  const getDefaultDocumentKeys = useCallback((supplier: Supplier): string[] => {
+    if (!selectedTradeCode) return [];
+    const categories = getAttachmentPreferenceCategories(supplier, selectedTradeCode);
+    return documentOptions
+      .filter(({ doc }) => categories.includes(doc.category))
+      .map(({ key }) => key);
+  }, [selectedTradeCode, documentOptions]);
+
+  function getSelectedDocumentKeys(supplier: Supplier): string[] {
+    return attachmentSelections[supplier.id] ?? getDefaultDocumentKeys(supplier);
+  }
+
+  function setSupplierDocumentKeys(supplierId: string, documentKeys: string[]) {
+    setAttachmentSelections((prev) => ({
+      ...prev,
+      [supplierId]: documentKeys,
+    }));
+  }
+
+  function toggleSupplierDocument(supplier: Supplier, documentKey: string) {
+    const current = getSelectedDocumentKeys(supplier);
+    const next = current.includes(documentKey)
+      ? current.filter((key) => key !== documentKey)
+      : [...current, documentKey];
+    setSupplierDocumentKeys(supplier.id, next);
+  }
+
   function buildSelections(): Selection[] {
     return Array.from(checkedSuppliers).map((supplierId) => ({
       supplierId,
       tradeCodes: [selectedTradeCode],
     }));
   }
+
+  function buildAttachmentPayload() {
+    return selectedSupplierList.map((supplier) => ({
+      supplierId: supplier.id,
+      documentKeys: getSelectedDocumentKeys(supplier),
+    }));
+  }
+
+  useEffect(() => {
+    setAttachmentSelections((prev) => {
+      const next: Record<string, string[]> = {};
+      for (const supplier of selectedSupplierList) {
+        next[supplier.id] = prev[supplier.id] ?? getDefaultDocumentKeys(supplier);
+      }
+      return next;
+    });
+  }, [selectedSupplierList, getDefaultDocumentKeys]);
+
+  useEffect(() => {
+    if (selectedSupplierList.length === 0) {
+      if (activeAttachmentSupplierId) setActiveAttachmentSupplierId("");
+      return;
+    }
+
+    if (!selectedSupplierList.some((supplier) => supplier.id === activeAttachmentSupplierId)) {
+      setActiveAttachmentSupplierId(selectedSupplierList[0].id);
+    }
+  }, [activeAttachmentSupplierId, selectedSupplierList]);
 
   async function handleSend() {
     if (!selectedJob) return;
@@ -125,7 +206,12 @@ export default function SendQuotesPage() {
       const res = await fetch("/api/email/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobCode: selectedJob.jobCode, selections, templateId: selectedTemplateId && selectedTemplateId !== "auto" ? selectedTemplateId : undefined }),
+        body: JSON.stringify({
+          jobCode: selectedJob.jobCode,
+          selections,
+          templateId: selectedTemplateId && selectedTemplateId !== "auto" ? selectedTemplateId : undefined,
+          attachmentSelections: buildAttachmentPayload(),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Send failed");
@@ -143,6 +229,8 @@ export default function SendQuotesPage() {
       // Stay on this screen — refresh job data and clear supplier selection so user
       // can immediately send another trade without re-picking the job.
       setCheckedSuppliers(new Set());
+      setAttachmentSelections({});
+      setActiveAttachmentSupplierId("");
       setSupplierSearch("");
       try {
         const jobsData = await getJobs();
@@ -190,6 +278,8 @@ export default function SendQuotesPage() {
                 setSelectedJobCode(v);
                 setSelectedTradeCode("");
                 setCheckedSuppliers(new Set());
+                setAttachmentSelections({});
+                setActiveAttachmentSupplierId("");
                 setSupplierSearch("");
               }}
             >
@@ -267,6 +357,8 @@ export default function SendQuotesPage() {
                   setSelectedTradeCode(v);
                   setSelectedTemplateId("");
                   setCheckedSuppliers(new Set());
+                  setAttachmentSelections({});
+                  setActiveAttachmentSupplierId("");
                   setSupplierSearch("");
                 }}
               >
@@ -466,10 +558,100 @@ export default function SendQuotesPage() {
           </Card>
         )}
 
-        {/* Step 4: Template Picker */}
+        {/* Step 4: Attachments */}
         {selectedTradeCode && checkedSuppliers.size > 0 && (
           <Card>
-            <CardHeader><CardTitle>4. Email Template</CardTitle></CardHeader>
+            <CardHeader><CardTitle>4. Attachments</CardTitle></CardHeader>
+            <CardContent>
+              {documentOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No uploaded job documents.
+                </p>
+              ) : (
+                <Tabs
+                  value={activeAttachmentSupplierId || selectedSupplierList[0]?.id}
+                  onValueChange={setActiveAttachmentSupplierId}
+                >
+                  <TabsList className="h-auto flex-wrap justify-start gap-1">
+                    {selectedSupplierList.map((supplier) => (
+                      <TabsTrigger
+                        key={supplier.id}
+                        value={supplier.id}
+                        className="max-w-[180px] truncate"
+                      >
+                        {supplier.company}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {selectedSupplierList.map((supplier) => {
+                    const selectedKeys = getSelectedDocumentKeys(supplier);
+                    return (
+                      <TabsContent key={supplier.id} value={supplier.id} className="space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <p className="text-sm text-muted-foreground">
+                            {selectedKeys.length}/{documentOptions.length} selected
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="min-h-[36px]"
+                              onClick={() =>
+                                setSupplierDocumentKeys(
+                                  supplier.id,
+                                  documentOptions.map(({ key }) => key)
+                                )
+                              }
+                            >
+                              All
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="min-h-[36px]"
+                              onClick={() => setSupplierDocumentKeys(supplier.id, [])}
+                            >
+                              None
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="border rounded-lg divide-y max-h-[320px] overflow-y-auto">
+                          {documentOptions.map(({ doc, key }) => (
+                            <label
+                              key={key}
+                              className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedKeys.includes(key)}
+                                onChange={() => toggleSupplierDocument(supplier, key)}
+                                className="w-4 h-4 flex-shrink-0"
+                              />
+                              <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{doc.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {getAttachmentCategoryLabel(doc.category)}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </TabsContent>
+                    );
+                  })}
+                </Tabs>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 5: Template Picker */}
+        {selectedTradeCode && checkedSuppliers.size > 0 && (
+          <Card>
+            <CardHeader><CardTitle>5. Email Template</CardTitle></CardHeader>
             <CardContent>
               <Select
                 value={selectedTemplateId}
@@ -505,6 +687,8 @@ export default function SendQuotesPage() {
                 setSelectedJobCode("");
                 setSelectedTradeCode("");
                 setCheckedSuppliers(new Set());
+                setAttachmentSelections({});
+                setActiveAttachmentSupplierId("");
                 setSupplierSearch("");
               }}
               className="min-h-[52px] text-base shadow-lg"
@@ -535,12 +719,15 @@ export default function SendQuotesPage() {
               <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
                 {buildSelections().map((sel) => {
                   const sup = suppliers.find((s) => s.id === sel.supplierId);
+                  const attachmentCount = sup ? getSelectedDocumentKeys(sup).length : 0;
                   return (
                     <div key={sel.supplierId} className="flex items-center gap-3 p-3">
                       <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{sup?.company || "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground">{sup?.email || "No email"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {sup?.email || "No email"} - {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""}
+                        </p>
                       </div>
                       <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                     </div>

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { getEstimators, getTemplates, getJob, saveJob } from "@/lib/supabase";
+import { getEstimators, getTemplates, getJob, saveJob, getSuppliers } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { renderTemplate, findTemplate, getGroupedTradeCodes, getTradeDisplayName } from "@/lib/templates";
-import type { Supplier } from "@/types";
+import { getSelectedDocumentsForSupplier } from "@/lib/attachments";
+import type { JobDocument } from "@/types";
 
 const MAX_SMTP_SIZE = 20 * 1024 * 1024; // 20MB
 
@@ -15,90 +16,17 @@ interface DownloadedFile {
   size: number;
 }
 
-// Fetch ALL suppliers with pagination
-async function fetchAllSuppliers(): Promise<Supplier[]> {
-  const PAGE = 1000;
-  const all: Record<string, unknown>[] = [];
-  let from = 0;
-
-  for (;;) {
-    const { data, error } = await supabase
-      .from("qp_suppliers")
-      .select("*")
-      .order("company")
-      .range(from, from + PAGE - 1);
-
-    if (error) throw error;
-    const rows = data || [];
-    all.push(...rows);
-    if (rows.length < PAGE) break;
-    from += PAGE;
-  }
-
-  return all.map((r) => ({
-    id: r.id as string,
-    company: r.company as string,
-    contact: r.contact as string,
-    email: r.email as string,
-    phone: r.phone as string,
-    abn: (r.abn as string) || undefined,
-    cc: (r.cc as string) || undefined,
-    trades: r.trades as string[],
-    regions: r.regions as string[],
-    status: r.status as Supplier["status"],
-    rating: r.rating as number,
-    notes: r.notes as string,
-    lastContacted: (r.last_contacted as string) || undefined,
-  }));
+interface AttachmentSelection {
+  supplierId: string;
+  documentKeys: string[];
 }
 
-export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.accessToken) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+async function downloadAttachmentFiles(jobCode: string, documents: JobDocument[]): Promise<DownloadedFile[]> {
+  const files: DownloadedFile[] = [];
 
-  const body = await request.json();
-  const {
-    jobCode,
-    selections,
-    templateId,
-  } = body as {
-    jobCode: string;
-    selections: { supplierId: string; tradeCodes: string[] }[];
-    templateId?: string;
-  };
-
-  if (!jobCode || !selections?.length) {
-    return NextResponse.json(
-      { error: "Missing required fields: jobCode, selections" },
-      { status: 400 }
-    );
-  }
-
-  // Load all data
-  const [suppliers, estimators, templates, job] = await Promise.all([
-    fetchAllSuppliers(),
-    getEstimators(),
-    getTemplates(),
-    getJob(jobCode),
-  ]);
-
-  if (!job) {
-    return NextResponse.json({ error: "Job not found" }, { status: 404 });
-  }
-
-  const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
-  if (!estimator) {
-    return NextResponse.json({ error: "No estimator found" }, { status: 400 });
-  }
-
-  // Download attachments from Supabase Storage
-  const attachmentFiles: DownloadedFile[] = [];
-  for (const doc of job.documents || []) {
+  for (const doc of documents) {
     if (doc.type !== "upload") continue;
 
-    // Use storagePath if available, otherwise construct from jobCode/category/fileName
     const storagePath = doc.storagePath || `${jobCode}/${doc.category}/${doc.fileName || doc.name}`;
 
     try {
@@ -113,39 +41,76 @@ export async function POST(request: NextRequest) {
 
       const arrayBuffer = await data.arrayBuffer();
       const buf = Buffer.from(arrayBuffer);
-      attachmentFiles.push({ name: doc.name, content: buf, size: buf.length });
+      files.push({ name: doc.name, content: buf, size: buf.length });
     } catch (err) {
       console.error(`[Email] Failed to download ${storagePath}:`, err);
     }
   }
 
-  // 20MB SMTP size guard
-  const totalSize = attachmentFiles.reduce((sum, f) => sum + f.size, 0);
-  if (totalSize > MAX_SMTP_SIZE) {
-    console.log(JSON.stringify({
-      evt: "attachment_size_warning",
-      jobCode,
-      totalBytes: totalSize,
-      files: attachmentFiles.map((f) => f.name),
-      msg: "Exceeds 20MB SMTP limit — sending without attachments",
-    }));
-    attachmentFiles.length = 0; // clear
+  return files;
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.accessToken) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Group selections by supplier
+  const body = await request.json();
+  const {
+    jobCode,
+    selections,
+    templateId,
+    attachmentSelections,
+  } = body as {
+    jobCode: string;
+    selections: { supplierId: string; tradeCodes: string[] }[];
+    templateId?: string;
+    attachmentSelections?: AttachmentSelection[];
+  };
+
+  if (!jobCode || !selections?.length) {
+    return NextResponse.json(
+      { error: "Missing required fields: jobCode, selections" },
+      { status: 400 }
+    );
+  }
+
+  const [suppliers, estimators, templates, job] = await Promise.all([
+    getSuppliers(),
+    getEstimators(),
+    getTemplates(),
+    getJob(jobCode),
+  ]);
+
+  if (!job) {
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
+
+  const estimator = estimators.find((e) => e.id === job.estimatorId) || estimators[0];
+  if (!estimator) {
+    return NextResponse.json({ error: "No estimator found" }, { status: 400 });
+  }
+
+  const attachmentOverrides = new Map(
+    Array.isArray(attachmentSelections)
+      ? attachmentSelections.map((item) => [item.supplierId, item.documentKeys])
+      : []
+  );
+
   const supplierGroups: { supplierId: string; tradeCodes: string[] }[] = [];
   for (const sel of selections) {
     const existing = supplierGroups.find((g) => g.supplierId === sel.supplierId);
     const codes: string[] = [];
     for (const code of sel.tradeCodes) {
       const grouped = getGroupedTradeCodes(code);
-      for (const gc of grouped) {
-        if (!codes.includes(gc)) codes.push(gc);
+      for (const groupedCode of grouped) {
+        if (!codes.includes(groupedCode)) codes.push(groupedCode);
       }
     }
     if (existing) {
-      for (const c of codes) {
-        if (!existing.tradeCodes.includes(c)) existing.tradeCodes.push(c);
+      for (const code of codes) {
+        if (!existing.tradeCodes.includes(code)) existing.tradeCodes.push(code);
       }
     } else {
       supplierGroups.push({ supplierId: sel.supplierId, tradeCodes: codes });
@@ -171,20 +136,39 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Contact name fallback
     const contactName = (supplier.contact || "").trim() || (supplier.company || "").trim() || "team";
     const safeSupplier = { ...supplier, contact: contactName };
 
     const context = { supplier: safeSupplier, job, estimator, tradeCodes };
     const tradeDisplay = getTradeDisplayName(tradeCodes);
-    const subject = `Quote Request — ${tradeDisplay} — ${job.address}`;
+    const subject = `Quote Request - ${tradeDisplay} - ${job.address}`;
     const htmlBody = renderTemplate(template.body, context).replace(/\n/g, "<br>");
 
-    // Build nodemailer attachments
-    const emailAttachments = attachmentFiles.map((f) => ({
-      name: f.name,
+    const selectedDocuments = getSelectedDocumentsForSupplier(
+      job.documents || [],
+      supplier,
+      tradeCodes,
+      attachmentOverrides.get(supplierId)
+    );
+    let attachmentFiles = await downloadAttachmentFiles(jobCode, selectedDocuments);
+
+    const totalSize = attachmentFiles.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > MAX_SMTP_SIZE) {
+      console.log(JSON.stringify({
+        evt: "attachment_size_warning",
+        jobCode,
+        supplierId,
+        totalBytes: totalSize,
+        files: attachmentFiles.map((file) => file.name),
+        msg: "Exceeds 20MB SMTP limit - sending without attachments",
+      }));
+      attachmentFiles = [];
+    }
+
+    const emailAttachments = attachmentFiles.map((file) => ({
+      name: file.name,
       contentType: "application/pdf",
-      contentBytes: f.content.toString("base64"),
+      contentBytes: file.content.toString("base64"),
     }));
 
     try {
@@ -196,7 +180,6 @@ export async function POST(request: NextRequest) {
         attachments: emailAttachments,
       });
 
-      // Structured log
       console.log(JSON.stringify({
         evt: "quote_email_sent",
         jobCode,
@@ -205,17 +188,22 @@ export async function POST(request: NextRequest) {
         trade: tradeDisplay,
         subject,
         bodyPreview: htmlBody.replace(/<[^>]+>/g, "").slice(0, 120),
-        attachments: emailAttachments.map((a) => ({ name: a.name, bytes: Buffer.from(a.contentBytes, "base64").length })),
-        totalBytes: emailAttachments.reduce((s, a) => s + Buffer.from(a.contentBytes, "base64").length, 0),
+        attachments: emailAttachments.map((attachment) => ({
+          name: attachment.name,
+          bytes: Buffer.from(attachment.contentBytes, "base64").length,
+        })),
+        totalBytes: emailAttachments.reduce(
+          (sum, attachment) => sum + Buffer.from(attachment.contentBytes, "base64").length,
+          0
+        ),
       }));
 
-      // Update quote status
       for (const tradeCode of tradeCodes) {
-        const tradeIndex = job.trades.findIndex((t) => t.code === tradeCode);
+        const tradeIndex = job.trades.findIndex((trade) => trade.code === tradeCode);
         if (tradeIndex === -1) continue;
 
         const existingQuote = job.trades[tradeIndex].quotes.find(
-          (q) => q.supplierId === supplierId
+          (quote) => quote.supplierId === supplierId
         );
         if (existingQuote) {
           existingQuote.status = "requested";
@@ -254,8 +242,8 @@ export async function POST(request: NextRequest) {
   job.updatedAt = new Date().toISOString();
   await saveJob(job);
 
-  const sent = results.filter((r) => r.success).length;
-  const failed = results.filter((r) => !r.success).length;
+  const sent = results.filter((result) => result.success).length;
+  const failed = results.filter((result) => !result.success).length;
 
   return NextResponse.json({ sent, failed, results });
 }

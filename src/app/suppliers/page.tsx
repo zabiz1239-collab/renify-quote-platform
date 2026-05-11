@@ -35,7 +35,12 @@ import { Plus, Pencil, Trash2, Upload, Truck, Search, Loader2, ChevronDown, Down
 import { getSuppliers as fetchSuppliers, saveSupplier as saveSupplierToDb, deleteSupplier as deleteSupplierFromDb, saveSuppliersBulk, getSettings, saveSettings } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import type { Supplier, SupplierCategory } from "@/types";
+import {
+  ATTACHMENT_CATEGORIES,
+  DEFAULT_ATTACHMENT_CATEGORIES,
+  pruneAttachmentPreferences,
+} from "@/lib/attachments";
+import type { AttachmentPreferences, JobDocumentCategory, Supplier, SupplierCategory } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
 import { toast } from "sonner";
@@ -93,6 +98,7 @@ const EMPTY_FORM = {
   status: "unverified" as Supplier["status"],
   rating: 3,
   notes: "",
+  attachmentPreferences: {} as AttachmentPreferences,
 };
 
 export default function SuppliersPage() {
@@ -202,6 +208,7 @@ export default function SuppliersPage() {
       status: sup.status,
       rating: sup.rating,
       notes: sup.notes,
+      attachmentPreferences: sup.attachmentPreferences || {},
     });
     setEditingId(sup.id);
     setDialogOpen(true);
@@ -216,9 +223,17 @@ export default function SuppliersPage() {
     }
     setSaving(true);
     try {
+      const attachmentPreferences = pruneAttachmentPreferences(
+        form.attachmentPreferences,
+        form.trades
+      );
+      const formForSave = {
+        ...form,
+        attachmentPreferences,
+      };
       const sup: Supplier = editingId
-        ? { ...suppliers.find((s) => s.id === editingId)!, ...form, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined }
-        : { id: uuidv4(), ...form, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined };
+        ? { ...suppliers.find((s) => s.id === editingId)!, ...formForSave, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined }
+        : { id: uuidv4(), ...formForSave, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined };
       await saveSupplierToDb(sup);
       if (editingId) {
         setSuppliers((prev) => prev.map((s) => (s.id === editingId ? sup : s)));
@@ -246,12 +261,50 @@ export default function SuppliersPage() {
   }
 
   function toggleTrade(code: string) {
+    setForm((prev) => {
+      const trades = prev.trades.includes(code)
+        ? prev.trades.filter((c) => c !== code)
+        : [...prev.trades, code];
+      return {
+        ...prev,
+        trades,
+        attachmentPreferences: pruneAttachmentPreferences(prev.attachmentPreferences, trades),
+      };
+    });
+  }
+
+  function getFormAttachmentCategories(tradeCode: string): JobDocumentCategory[] {
+    return form.attachmentPreferences[tradeCode] ?? DEFAULT_ATTACHMENT_CATEGORIES;
+  }
+
+  function setFormAttachmentCategories(tradeCode: string, categories: JobDocumentCategory[]) {
     setForm((prev) => ({
       ...prev,
-      trades: prev.trades.includes(code)
-        ? prev.trades.filter((c) => c !== code)
-        : [...prev.trades, code],
+      attachmentPreferences: {
+        ...prev.attachmentPreferences,
+        [tradeCode]: categories,
+      },
     }));
+  }
+
+  function toggleFormAttachmentCategory(tradeCode: string, category: JobDocumentCategory) {
+    const current = getFormAttachmentCategories(tradeCode);
+    const next = current.includes(category)
+      ? current.filter((item) => item !== category)
+      : [...current, category];
+    setFormAttachmentCategories(tradeCode, next);
+  }
+
+  function getFormTradeLabel(tradeCode: string) {
+    if (tradeCode.startsWith("cat_")) {
+      const customCategory = customCategories.find((category) => `cat_${category.key}` === tradeCode);
+      return customCategory?.label || tradeCode.replace(/^cat_/, "");
+    }
+    return (
+      TRADES.find((trade) => trade.code === tradeCode)?.name ||
+      customTrades.find((trade) => trade.code === tradeCode)?.name ||
+      tradeCode
+    );
   }
 
   function toggleRegion(region: string) {
@@ -703,7 +756,11 @@ export default function SuppliersPage() {
       }
       const newTradeCodes = group.trades.map((t) => t.code);
       const toUpdate = suppliers.filter((s) => bulkSelected.has(s.id));
-      const updated = toUpdate.map((s) => ({ ...s, trades: newTradeCodes }));
+      const updated = toUpdate.map((s) => ({
+        ...s,
+        trades: newTradeCodes,
+        attachmentPreferences: pruneAttachmentPreferences(s.attachmentPreferences, newTradeCodes),
+      }));
       await saveSuppliersBulk(updated);
       setSuppliers((prev) =>
         prev.map((s) => {
@@ -730,7 +787,11 @@ export default function SuppliersPage() {
     const group = GROUPED_TRADES.find((g) => g.key === newCategoryKey);
     if (group) {
       const newTradeCodes = group.trades.map((t) => t.code);
-      const updated = { ...supplier, trades: newTradeCodes };
+      const updated = {
+        ...supplier,
+        trades: newTradeCodes,
+        attachmentPreferences: pruneAttachmentPreferences(supplier.attachmentPreferences, newTradeCodes),
+      };
       try {
         await saveSupplierToDb(updated);
         setSuppliers((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
@@ -744,7 +805,12 @@ export default function SuppliersPage() {
     const customCat = customCategories.find((c) => c.key === newCategoryKey);
     if (customCat) {
       // For custom categories, keep existing trades but add a tag prefix
-      const updated = { ...supplier, trades: [`cat_${customCat.key}`] };
+      const trades = [`cat_${customCat.key}`];
+      const updated = {
+        ...supplier,
+        trades,
+        attachmentPreferences: pruneAttachmentPreferences(supplier.attachmentPreferences, trades),
+      };
       try {
         await saveSupplierToDb(updated);
         setSuppliers((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
@@ -1120,11 +1186,18 @@ export default function SuppliersPage() {
                       </Label>
                       <div className="flex gap-1">
                         <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
-                          onClick={() => setForm((p) => ({ ...p, trades: QUOTABLE_TRADES.map((t) => t.code) }))}>
+                          onClick={() => setForm((p) => {
+                            const trades = QUOTABLE_TRADES.map((t) => t.code);
+                            return {
+                              ...p,
+                              trades,
+                              attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                            };
+                          })}>
                           All
                         </Button>
                         <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
-                          onClick={() => setForm((p) => ({ ...p, trades: [] }))}>
+                          onClick={() => setForm((p) => ({ ...p, trades: [], attachmentPreferences: {} }))}>
                           None
                         </Button>
                       </div>
@@ -1176,9 +1249,23 @@ export default function SuppliersPage() {
                                   ref={(el) => { if (el) el.indeterminate = someGroupSelected && !allGroupSelected; }}
                                   onChange={() => {
                                     if (allGroupSelected) {
-                                      setForm((p) => ({ ...p, trades: p.trades.filter((c) => !groupCodes.includes(c)) }));
+                                      setForm((p) => {
+                                        const trades = p.trades.filter((c) => !groupCodes.includes(c));
+                                        return {
+                                          ...p,
+                                          trades,
+                                          attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                                        };
+                                      });
                                     } else {
-                                      setForm((p) => ({ ...p, trades: Array.from(new Set([...p.trades, ...groupCodes])) }));
+                                      setForm((p) => {
+                                        const trades = Array.from(new Set([...p.trades, ...groupCodes]));
+                                        return {
+                                          ...p,
+                                          trades,
+                                          attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                                        };
+                                      });
                                     }
                                   }}
                                   className="w-4 h-4"
@@ -1223,6 +1310,90 @@ export default function SuppliersPage() {
                         <p className="text-sm text-muted-foreground text-center py-4">No trades match your search.</p>
                       )}
                     </div>
+                  </div>
+
+                  <div className="space-y-2 p-3 rounded-lg border border-muted bg-muted/20">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-semibold">
+                        Attachment Defaults
+                      </Label>
+                      <span className="text-sm text-muted-foreground">
+                        {form.trades.length} cost centre{form.trades.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    {form.trades.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-3 text-center">
+                        Select trades first.
+                      </p>
+                    ) : (
+                      <div className="max-h-72 overflow-y-auto border rounded-lg bg-background divide-y">
+                        {form.trades.map((tradeCode) => {
+                          const selectedCategories = getFormAttachmentCategories(tradeCode);
+                          return (
+                            <div key={tradeCode} className="p-3 space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">
+                                    <span className="text-muted-foreground">{tradeCode}</span>{" "}
+                                    {getFormTradeLabel(tradeCode)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {selectedCategories.length}/{ATTACHMENT_CATEGORIES.length} selected
+                                  </p>
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs h-7 px-2"
+                                    onClick={() =>
+                                      setFormAttachmentCategories(
+                                        tradeCode,
+                                        DEFAULT_ATTACHMENT_CATEGORIES
+                                      )
+                                    }
+                                  >
+                                    All
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs h-7 px-2"
+                                    onClick={() => setFormAttachmentCategories(tradeCode, [])}
+                                  >
+                                    None
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {ATTACHMENT_CATEGORIES.map((category) => (
+                                  <label
+                                    key={category.key}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer min-h-[40px] text-sm ${
+                                      selectedCategories.includes(category.key)
+                                        ? "bg-[#2D5E3A]/10 border-[#2D5E3A]/40"
+                                        : "hover:bg-muted"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedCategories.includes(category.key)}
+                                      onChange={() =>
+                                        toggleFormAttachmentCategory(tradeCode, category.key)
+                                      }
+                                      className="w-4 h-4"
+                                    />
+                                    {category.label}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Regions */}
