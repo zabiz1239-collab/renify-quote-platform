@@ -40,7 +40,7 @@ import {
   DEFAULT_ATTACHMENT_CATEGORIES,
   pruneAttachmentPreferences,
 } from "@/lib/attachments";
-import { DEFAULT_REGIONS, mergeRegions } from "@/lib/regions";
+import { DEFAULT_REGIONS, mergeRegions, supplierMatchesRegion } from "@/lib/regions";
 import type { AttachmentPreferences, JobDocumentCategory, Supplier, SupplierCategory } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
@@ -113,6 +113,7 @@ export default function SuppliersPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
   const [csvResult, setCsvResult] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [tradeSearch, setTradeSearch] = useState("");
@@ -728,8 +729,13 @@ export default function SuppliersPage() {
       s.contact.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.email.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = !categoryFilter || categoryFilter === "all" || s.trades.includes(categoryFilter);
-    return matchesSearch && matchesCategory;
+    const matchesState = stateFilter === "all" || supplierMatchesRegion(s.regions, stateFilter);
+    return matchesSearch && matchesCategory && matchesState;
   });
+  const stateSummaries = regionOptions.map((region) => ({
+    region,
+    count: suppliers.filter((s) => supplierMatchesRegion(s.regions, region)).length,
+  }));
 
   // Split into missing email vs has email
   const needsEmail = filtered.filter((s) => !s.email || s.email.trim() === "");
@@ -805,7 +811,7 @@ export default function SuppliersPage() {
   }
 
   // Reset page when search or filter changes
-  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm, categoryFilter]);
+  useEffect(() => { setPage(0); setNeedsEmailPage(0); }, [searchTerm, categoryFilter, stateFilter]);
 
   // Quick trade reassignment — move supplier to a different category
   async function handleQuickCategoryChange(supplier: Supplier, newCategoryKey: string) {
@@ -1753,6 +1759,39 @@ export default function SuppliersPage() {
           </div>
         )}
 
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Suppliers by State / Region</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={stateFilter === "all" ? "default" : "outline"}
+                size="sm"
+                className="min-h-[40px]"
+                onClick={() => setStateFilter("all")}
+              >
+                All
+                <Badge variant="secondary" className="ml-2">{suppliers.length}</Badge>
+              </Button>
+              {stateSummaries.map(({ region, count }) => (
+                <Button
+                  key={region}
+                  type="button"
+                  variant={stateFilter === region ? "default" : "outline"}
+                  size="sm"
+                  className="min-h-[40px]"
+                  onClick={() => setStateFilter(region)}
+                >
+                  {region}
+                  <Badge variant="secondary" className="ml-2">{count}</Badge>
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex flex-wrap gap-3 items-center">
           <Input
             placeholder="Search suppliers..."
@@ -1768,6 +1807,17 @@ export default function SuppliersPage() {
               <SelectItem value="all">All Trades</SelectItem>
               {[...QUOTABLE_TRADES, ...customTrades.map((t) => ({ ...t, quotable: true as const }))].map((t) => (
                 <SelectItem key={t.code} value={t.code}>{t.code} {t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={stateFilter} onValueChange={setStateFilter}>
+            <SelectTrigger className="w-[220px] min-h-[44px]">
+              <SelectValue placeholder="All States / Regions" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value="all">All States / Regions</SelectItem>
+              {regionOptions.map((region) => (
+                <SelectItem key={region} value={region}>{region}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1836,6 +1886,7 @@ export default function SuppliersPage() {
                       {bulkMode && <TableHead className="w-[44px]" />}
                       <TableHead>Company</TableHead>
                       <TableHead className="hidden md:table-cell">Phone</TableHead>
+                      <TableHead className="hidden lg:table-cell">State / Region</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="w-[180px]">Actions</TableHead>
                     </TableRow>
@@ -1858,10 +1909,16 @@ export default function SuppliersPage() {
                             <p className="font-medium">{sup.company}</p>
                             {sup.contact && <p className="text-xs text-muted-foreground">{sup.contact}</p>}
                             {sup.notes && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{sup.notes}</p>}
+                            <p className="text-xs text-muted-foreground lg:hidden">
+                              {sup.regions.length > 0 ? sup.regions.join(", ") : "Unassigned"}
+                            </p>
                           </div>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           {sup.phone || <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {sup.regions.length > 0 ? sup.regions.join(", ") : <span className="text-muted-foreground">Unassigned</span>}
                         </TableCell>
                         <TableCell>
                           <Select
@@ -1917,6 +1974,7 @@ export default function SuppliersPage() {
               <CardTitle>
                 Suppliers ({hasEmail.length}
                 {searchTerm ? ` of ${suppliers.length}` : ""})
+                {stateFilter !== "all" ? ` in ${stateFilter}` : ""}
               </CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto">
@@ -1927,6 +1985,7 @@ export default function SuppliersPage() {
                     <TableHead>Company</TableHead>
                     <TableHead className="hidden md:table-cell">Contact</TableHead>
                     <TableHead className="hidden md:table-cell">Email</TableHead>
+                    <TableHead className="hidden lg:table-cell">State / Region</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-[180px]">Actions</TableHead>
@@ -1952,6 +2011,9 @@ export default function SuppliersPage() {
                             {sup.contact && <span>{sup.contact} &middot; </span>}
                             {sup.email}
                           </p>
+                          <p className="text-xs text-muted-foreground lg:hidden">
+                            {sup.regions.length > 0 ? sup.regions.join(", ") : "Unassigned"}
+                          </p>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
@@ -1959,6 +2021,9 @@ export default function SuppliersPage() {
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {sup.email}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {sup.regions.length > 0 ? sup.regions.join(", ") : <span className="text-muted-foreground">Unassigned</span>}
                       </TableCell>
                       <TableCell>
                         <Select

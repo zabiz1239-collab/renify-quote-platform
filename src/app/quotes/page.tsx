@@ -41,6 +41,17 @@ interface Selection {
   tradeCodes: string[];
 }
 
+type SendMode = "single" | "bulk";
+
+function makeSelectionKey(tradeCode: string, supplierId: string) {
+  return `${tradeCode}::${supplierId}`;
+}
+
+function splitSelectionKey(key: string) {
+  const [tradeCode, supplierId] = key.split("::");
+  return { tradeCode, supplierId };
+}
+
 export default function SendQuotesPage() {
   usePageTitle("Send Quotes");
   useSession();
@@ -50,10 +61,13 @@ export default function SendQuotesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJobCode, setSelectedJobCode] = useState("");
+  const [sendMode, setSendMode] = useState<SendMode>("single");
   const [selectedTradeCode, setSelectedTradeCode] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [supplierSearch, setSupplierSearch] = useState("");
   const [checkedSuppliers, setCheckedSuppliers] = useState<Set<string>>(new Set());
+  const [bulkTradeCodes, setBulkTradeCodes] = useState<Set<string>>(new Set());
+  const [bulkSupplierSelections, setBulkSupplierSelections] = useState<Set<string>>(new Set());
   const [attachmentSelections, setAttachmentSelections] = useState<Record<string, string[]>>({});
   const [activeAttachmentSupplierId, setActiveAttachmentSupplierId] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -83,6 +97,10 @@ export default function SendQuotesPage() {
   const activeJobs = jobs.filter((j) => j.status === "active" || j.status === "quoting");
   const selectedJob = jobs.find((j) => j.jobCode === selectedJobCode);
   const tradeMeta = TRADES.find((t) => t.code === selectedTradeCode);
+  const jobTradeCodes = useMemo(
+    () => (selectedJob?.trades || []).map((trade) => trade.code),
+    [selectedJob]
+  );
   const documentOptions = useMemo(
     () =>
       (selectedJob?.documents || [])
@@ -94,12 +112,30 @@ export default function SendQuotesPage() {
         .filter(({ doc }) => doc.type === "upload"),
     [selectedJob]
   );
+
+  const getSuppliersForTradeCode = useCallback((tradeCode: string) => {
+    return suppliers.filter(
+      (s) => s.trades.includes(tradeCode) && supplierMatchesRegion(s.regions, selectedJob?.region)
+    );
+  }, [suppliers, selectedJob?.region]);
+
   const selectedSupplierList = useMemo(
-    () =>
-      Array.from(checkedSuppliers)
+    () => {
+      const selectedIds = new Set<string>();
+      if (sendMode === "bulk") {
+        for (const key of Array.from(bulkSupplierSelections)) {
+          const { supplierId, tradeCode } = splitSelectionKey(key);
+          if (bulkTradeCodes.has(tradeCode)) selectedIds.add(supplierId);
+        }
+      } else {
+        for (const supplierId of Array.from(checkedSuppliers)) selectedIds.add(supplierId);
+      }
+
+      return Array.from(selectedIds)
         .map((supplierId) => suppliers.find((supplier) => supplier.id === supplierId))
-        .filter((supplier): supplier is Supplier => Boolean(supplier)),
-    [checkedSuppliers, suppliers]
+        .filter((supplier): supplier is Supplier => Boolean(supplier));
+    },
+    [bulkSupplierSelections, bulkTradeCodes, checkedSuppliers, sendMode, suppliers]
   );
 
   const allTradeSuppliers = useMemo(() => {
@@ -109,8 +145,8 @@ export default function SendQuotesPage() {
 
   const tradeSuppliers = useMemo(() => {
     if (!selectedTradeCode) return [];
-    return allTradeSuppliers.filter((s) => supplierMatchesRegion(s.regions, selectedJob?.region));
-  }, [allTradeSuppliers, selectedJob?.region, selectedTradeCode]);
+    return getSuppliersForTradeCode(selectedTradeCode);
+  }, [getSuppliersForTradeCode, selectedTradeCode]);
 
   const excludedByRegionCount = allTradeSuppliers.length - tradeSuppliers.length;
 
@@ -143,13 +179,115 @@ export default function SendQuotesPage() {
     setCheckedSuppliers(new Set());
   }
 
+  function clearBulkSelections() {
+    setBulkTradeCodes(new Set());
+    setBulkSupplierSelections(new Set());
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  function selectAllBulkTradesAndSuppliers() {
+    if (!selectedJob) return;
+    const nextTrades = new Set(jobTradeCodes);
+    const nextSuppliers = new Set<string>();
+    for (const tradeCode of jobTradeCodes) {
+      for (const supplier of getSuppliersForTradeCode(tradeCode)) {
+        nextSuppliers.add(makeSelectionKey(tradeCode, supplier.id));
+      }
+    }
+    setBulkTradeCodes(nextTrades);
+    setBulkSupplierSelections(nextSuppliers);
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  function toggleBulkTrade(tradeCode: string) {
+    const shouldSelect = !bulkTradeCodes.has(tradeCode);
+    setBulkTradeCodes((prev) => {
+      const nextTrades = new Set(prev);
+      if (shouldSelect) nextTrades.add(tradeCode);
+      else nextTrades.delete(tradeCode);
+      return nextTrades;
+    });
+    setBulkSupplierSelections((prevSelections) => {
+      const nextSelections = new Set(prevSelections);
+      if (shouldSelect) {
+        for (const supplier of getSuppliersForTradeCode(tradeCode)) {
+          nextSelections.add(makeSelectionKey(tradeCode, supplier.id));
+        }
+      } else {
+        for (const key of Array.from(nextSelections)) {
+          if (splitSelectionKey(key).tradeCode === tradeCode) nextSelections.delete(key);
+        }
+      }
+      return nextSelections;
+    });
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  function selectBulkTradeSuppliers(tradeCode: string) {
+    setBulkTradeCodes((prev) => new Set(prev).add(tradeCode));
+    setBulkSupplierSelections((prev) => {
+      const next = new Set(prev);
+      for (const supplier of getSuppliersForTradeCode(tradeCode)) {
+        next.add(makeSelectionKey(tradeCode, supplier.id));
+      }
+      return next;
+    });
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  function clearBulkTradeSuppliers(tradeCode: string) {
+    setBulkSupplierSelections((prev) => {
+      const next = new Set(prev);
+      for (const key of Array.from(next)) {
+        if (splitSelectionKey(key).tradeCode === tradeCode) next.delete(key);
+      }
+      return next;
+    });
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  function toggleBulkSupplier(tradeCode: string, supplierId: string) {
+    const key = makeSelectionKey(tradeCode, supplierId);
+    setBulkTradeCodes((prev) => new Set(prev).add(tradeCode));
+    setBulkSupplierSelections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    setAttachmentSelections({});
+    setActiveAttachmentSupplierId("");
+  }
+
+  const getTradeCodesForSupplier = useCallback((supplierId: string) => {
+    if (sendMode === "bulk") {
+      const tradeOrder = new Map(jobTradeCodes.map((code, index) => [code, index]));
+      return Array.from(bulkSupplierSelections)
+        .map(splitSelectionKey)
+        .filter(({ supplierId: selectedSupplierId, tradeCode }) =>
+          selectedSupplierId === supplierId && bulkTradeCodes.has(tradeCode)
+        )
+        .map(({ tradeCode }) => tradeCode)
+        .sort((a, b) => (tradeOrder.get(a) ?? 9999) - (tradeOrder.get(b) ?? 9999));
+    }
+    return selectedTradeCode && checkedSuppliers.has(supplierId) ? [selectedTradeCode] : [];
+  }, [bulkSupplierSelections, bulkTradeCodes, checkedSuppliers, jobTradeCodes, selectedTradeCode, sendMode]);
+
   const getDefaultDocumentKeys = useCallback((supplier: Supplier): string[] => {
-    if (!selectedTradeCode) return [];
-    const categories = getAttachmentPreferenceCategories(supplier, selectedTradeCode);
+    const tradeCodes = getTradeCodesForSupplier(supplier.id);
+    if (tradeCodes.length === 0) return [];
+    const categories = new Set(
+      tradeCodes.flatMap((tradeCode) => getAttachmentPreferenceCategories(supplier, tradeCode))
+    );
     return documentOptions
-      .filter(({ doc }) => categories.includes(doc.category))
+      .filter(({ doc }) => categories.has(doc.category))
       .map(({ key }) => key);
-  }, [selectedTradeCode, documentOptions]);
+  }, [documentOptions, getTradeCodesForSupplier]);
 
   function getSelectedDocumentKeys(supplier: Supplier): string[] {
     return attachmentSelections[supplier.id] ?? getDefaultDocumentKeys(supplier);
@@ -171,6 +309,26 @@ export default function SendQuotesPage() {
   }
 
   function buildSelections(): Selection[] {
+    if (sendMode === "bulk") {
+      const tradeOrder = new Map(jobTradeCodes.map((code, index) => [code, index]));
+      const grouped = new Map<string, Set<string>>();
+      for (const key of Array.from(bulkSupplierSelections)) {
+        const { tradeCode, supplierId } = splitSelectionKey(key);
+        if (!bulkTradeCodes.has(tradeCode)) continue;
+        if (!grouped.has(supplierId)) grouped.set(supplierId, new Set());
+        grouped.get(supplierId)!.add(tradeCode);
+      }
+      return Array.from(grouped.entries())
+        .map(([supplierId, tradeCodes]) => ({
+          supplierId,
+          tradeCodes: Array.from(tradeCodes).sort(
+            (a, b) => (tradeOrder.get(a) ?? 9999) - (tradeOrder.get(b) ?? 9999)
+          ),
+        }))
+        .filter((selection) => selection.tradeCodes.length > 0);
+    }
+
+    if (!selectedTradeCode) return [];
     return Array.from(checkedSuppliers).map((supplierId) => ({
       supplierId,
       tradeCodes: [selectedTradeCode],
@@ -207,9 +365,13 @@ export default function SendQuotesPage() {
 
   async function handleSend() {
     if (!selectedJob) return;
+    const selections = buildSelections();
+    if (selections.length === 0) {
+      toast.error("Select at least one supplier before sending");
+      return;
+    }
     setSending(true);
     try {
-      const selections = buildSelections();
       const res = await fetch("/api/email/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -236,8 +398,7 @@ export default function SendQuotesPage() {
       // Stay on this screen — refresh job data and clear supplier selection so user
       // can immediately send another trade without re-picking the job.
       setCheckedSuppliers(new Set());
-      setAttachmentSelections({});
-      setActiveAttachmentSupplierId("");
+      clearBulkSelections();
       setSupplierSearch("");
       try {
         const jobsData = await getJobs();
@@ -262,6 +423,10 @@ export default function SendQuotesPage() {
     return counts;
   }
 
+  const currentSelections = buildSelections();
+  const selectedEmailCount = currentSelections.length;
+  const selectedCostCentreCount = new Set(currentSelections.flatMap((selection) => selection.tradeCodes)).size;
+
   if (loading) {
     return (
       <AuthLayout>
@@ -284,9 +449,9 @@ export default function SendQuotesPage() {
               onValueChange={(v) => {
                 setSelectedJobCode(v);
                 setSelectedTradeCode("");
+                setSelectedTemplateId("");
                 setCheckedSuppliers(new Set());
-                setAttachmentSelections({});
-                setActiveAttachmentSupplierId("");
+                clearBulkSelections();
                 setSupplierSearch("");
               }}
             >
@@ -356,16 +521,47 @@ export default function SendQuotesPage() {
         {/* Step 2: Trade Dropdown + Quote Status */}
         {selectedJob && (selectedJob.trades || []).length > 0 && (
           <Card>
-            <CardHeader><CardTitle>2. Select Trade</CardTitle></CardHeader>
+            <CardHeader><CardTitle>2. Select Cost Centres</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={sendMode === "single" ? "default" : "outline"}
+                  className="min-h-[44px]"
+                  onClick={() => {
+                    setSendMode("single");
+                    clearBulkSelections();
+                    setSupplierSearch("");
+                  }}
+                >
+                  Single cost centre
+                </Button>
+                <Button
+                  type="button"
+                  variant={sendMode === "bulk" ? "default" : "outline"}
+                  className="min-h-[44px]"
+                  onClick={() => {
+                    if (sendMode !== "bulk") clearBulkSelections();
+                    setSendMode("bulk");
+                    setSelectedTradeCode("");
+                    setCheckedSuppliers(new Set());
+                    setAttachmentSelections({});
+                    setActiveAttachmentSupplierId("");
+                    setSupplierSearch("");
+                  }}
+                >
+                  Bulk all cost centres
+                </Button>
+              </div>
+
+              {sendMode === "single" ? (
               <Select
                 value={selectedTradeCode}
                 onValueChange={(v) => {
                   setSelectedTradeCode(v);
                   setSelectedTemplateId("");
                   setCheckedSuppliers(new Set());
-                  setAttachmentSelections({});
-                  setActiveAttachmentSupplierId("");
+                  clearBulkSelections();
                   setSupplierSearch("");
                 }}
               >
@@ -374,9 +570,7 @@ export default function SendQuotesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {(selectedJob.trades || []).map((trade) => {
-                    const supplierCount = suppliers.filter(
-                      (s) => s.trades.includes(trade.code) && supplierMatchesRegion(s.regions, selectedJob.region)
-                    ).length;
+                    const supplierCount = getSuppliersForTradeCode(trade.code).length;
                     const requested = (trade.quotes || []).filter((q) => q.status === "requested").length;
                     const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted").length;
                     return (
@@ -389,6 +583,52 @@ export default function SendQuotesPage() {
                   })}
                 </SelectContent>
               </Select>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {bulkTradeCodes.size} cost centre{bulkTradeCodes.size !== 1 ? "s" : ""} selected, {bulkSupplierSelections.size} supplier selection{bulkSupplierSelections.size !== 1 ? "s" : ""}.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" className="min-h-[40px]" onClick={selectAllBulkTradesAndSuppliers}>
+                        Select all trades and suppliers
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" className="min-h-[40px]" onClick={clearBulkSelections}>
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="border rounded-lg divide-y max-h-[360px] overflow-y-auto">
+                    {(selectedJob.trades || []).map((trade) => {
+                      const supplierCount = getSuppliersForTradeCode(trade.code).length;
+                      const selectedSupplierCount = Array.from(bulkSupplierSelections).filter((key) => splitSelectionKey(key).tradeCode === trade.code).length;
+                      const requested = (trade.quotes || []).filter((q) => q.status === "requested").length;
+                      const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted").length;
+                      return (
+                        <label key={trade.code} className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[52px]">
+                          <input
+                            type="checkbox"
+                            checked={bulkTradeCodes.has(trade.code)}
+                            onChange={() => toggleBulkTrade(trade.code)}
+                            className="w-4 h-4 flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{trade.code} {trade.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {selectedSupplierCount}/{supplierCount} supplier{supplierCount !== 1 ? "s" : ""} in {selectedJob.region}
+                              {requested > 0 && ` - ${requested} requested`}
+                              {received > 0 && ` - ${received} received`}
+                            </p>
+                          </div>
+                          <Badge variant={supplierCount > 0 ? "secondary" : "outline"} className="text-xs flex-shrink-0">
+                            {supplierCount}
+                          </Badge>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Quote status summary with remove option */}
               {(() => {
@@ -461,7 +701,7 @@ export default function SendQuotesPage() {
         )}
 
         {/* Step 3: Supplier List with Search */}
-        {selectedTradeCode && (
+        {sendMode === "single" && selectedTradeCode && (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -573,8 +813,126 @@ export default function SendQuotesPage() {
           </Card>
         )}
 
+        {sendMode === "bulk" && selectedJob && bulkTradeCodes.size > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                3. Select Suppliers by Cost Centre
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  ({selectedEmailCount} email{selectedEmailCount !== 1 ? "s" : ""}, {selectedCostCentreCount} cost centre{selectedCostCentreCount !== 1 ? "s" : ""})
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search suppliers..."
+                    value={supplierSearch}
+                    onChange={(e) => setSupplierSearch(e.target.value)}
+                    className="pl-9 min-h-[44px]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={selectAllBulkTradesAndSuppliers} className="min-h-[44px]">
+                    Select all
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={clearBulkSelections} className="min-h-[44px]">
+                    Clear
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {(selectedJob.trades || [])
+                  .filter((trade) => bulkTradeCodes.has(trade.code))
+                  .map((trade) => {
+                    const term = supplierSearch.trim().toLowerCase();
+                    const tradeSupplierList = getSuppliersForTradeCode(trade.code);
+                    const visibleSuppliers = term
+                      ? tradeSupplierList.filter((supplier) =>
+                          supplier.company.toLowerCase().includes(term) ||
+                          supplier.email.toLowerCase().includes(term) ||
+                          supplier.phone.includes(term)
+                        )
+                      : tradeSupplierList;
+                    const selectedCount = tradeSupplierList.filter((supplier) =>
+                      bulkSupplierSelections.has(makeSelectionKey(trade.code, supplier.id))
+                    ).length;
+
+                    return (
+                      <div key={trade.code} className="border rounded-lg overflow-hidden">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-muted/40">
+                          <div>
+                            <p className="text-sm font-medium">{trade.code} {trade.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {selectedCount}/{tradeSupplierList.length} supplier{tradeSupplierList.length !== 1 ? "s" : ""} selected
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button type="button" variant="outline" size="sm" className="min-h-[36px]" onClick={() => selectBulkTradeSuppliers(trade.code)}>
+                              All
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" className="min-h-[36px]" onClick={() => clearBulkTradeSuppliers(trade.code)}>
+                              None
+                            </Button>
+                          </div>
+                        </div>
+                        {visibleSuppliers.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            {supplierSearch
+                              ? "No suppliers match your search for this cost centre."
+                              : `No suppliers are linked to ${selectedJob.region || "this state or region"} for this cost centre.`}
+                          </p>
+                        ) : (
+                          <div className="divide-y max-h-[260px] overflow-y-auto">
+                            {visibleSuppliers.map((supplier) => {
+                              const key = makeSelectionKey(trade.code, supplier.id);
+                              const existingQuote = (trade.quotes || []).find((q) => q.supplierId === supplier.id);
+                              return (
+                                <label
+                                  key={key}
+                                  className={`flex items-center gap-3 p-3 hover:bg-muted cursor-pointer min-h-[44px] ${existingQuote ? "bg-blue-50/50" : ""}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={bulkSupplierSelections.has(key)}
+                                    onChange={() => toggleBulkSupplier(trade.code, supplier.id)}
+                                    className="w-4 h-4 flex-shrink-0"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium">{supplier.company}</p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                      {supplier.email || "No email"}
+                                      {supplier.phone && ` - ${supplier.phone}`}
+                                      {supplier.regions.length > 0 && ` - ${supplier.regions.join(", ")}`}
+                                    </p>
+                                  </div>
+                                  {existingQuote ? (
+                                    <Badge className="text-xs flex-shrink-0 bg-blue-100 text-blue-800">
+                                      {existingQuote.status.replace("_", " ")}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-xs flex-shrink-0">
+                                      {supplier.status}
+                                    </Badge>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Step 4: Attachments */}
-        {selectedTradeCode && checkedSuppliers.size > 0 && (
+        {selectedEmailCount > 0 && (
           <Card>
             <CardHeader><CardTitle>4. Attachments</CardTitle></CardHeader>
             <CardContent>
@@ -664,7 +1022,7 @@ export default function SendQuotesPage() {
         )}
 
         {/* Step 5: Template Picker */}
-        {selectedTradeCode && checkedSuppliers.size > 0 && (
+        {selectedEmailCount > 0 && (
           <Card>
             <CardHeader><CardTitle>5. Email Template</CardTitle></CardHeader>
             <CardContent>
@@ -687,7 +1045,7 @@ export default function SendQuotesPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-2">
-                Leave on auto to use the best matching template, or pick a specific one.
+                Leave on auto to use the best matching template for each supplier group, or pick one template for the full send.
               </p>
             </CardContent>
           </Card>
@@ -701,9 +1059,9 @@ export default function SendQuotesPage() {
               onClick={() => {
                 setSelectedJobCode("");
                 setSelectedTradeCode("");
+                setSelectedTemplateId("");
                 setCheckedSuppliers(new Set());
-                setAttachmentSelections({});
-                setActiveAttachmentSupplierId("");
+                clearBulkSelections();
                 setSupplierSearch("");
               }}
               className="min-h-[52px] text-base shadow-lg"
@@ -712,11 +1070,11 @@ export default function SendQuotesPage() {
             </Button>
             <Button
               onClick={() => setPreviewOpen(true)}
-              disabled={checkedSuppliers.size === 0}
+              disabled={selectedEmailCount === 0}
               className="flex-1 min-h-[52px] text-base shadow-lg bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
             >
               <Send className="w-5 h-5 mr-2" />
-              Send Quote{checkedSuppliers.size > 0 ? ` (${checkedSuppliers.size} supplier${checkedSuppliers.size !== 1 ? "s" : ""})` : ""}
+              Send Quote{selectedEmailCount > 0 ? ` (${selectedEmailCount} email${selectedEmailCount !== 1 ? "s" : ""})` : ""}
             </Button>
           </div>
         )}
@@ -725,14 +1083,16 @@ export default function SendQuotesPage() {
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Confirm Send — {tradeMeta?.name || selectedTradeCode}</DialogTitle>
+              <DialogTitle>
+                Confirm Send — {sendMode === "bulk" ? `${selectedCostCentreCount} cost centres` : tradeMeta?.name || selectedTradeCode}
+              </DialogTitle>
               <DialogDescription>
                 {selectedJob?.jobCode} — {selectedJob?.address}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
-                {buildSelections().map((sel) => {
+                {currentSelections.map((sel) => {
                   const sup = suppliers.find((s) => s.id === sel.supplierId);
                   const attachmentCount = sup ? getSelectedDocumentKeys(sup).length : 0;
                   return (
@@ -743,6 +1103,9 @@ export default function SendQuotesPage() {
                         <p className="text-xs text-muted-foreground">
                           {sup?.email || "No email"} - {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""}
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          Cost centres: {sel.tradeCodes.join(", ")}
+                        </p>
                       </div>
                       <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                     </div>
@@ -750,7 +1113,7 @@ export default function SendQuotesPage() {
                 })}
               </div>
               <p className="text-sm text-muted-foreground">
-                {buildSelections().length} email{buildSelections().length !== 1 ? "s" : ""} will be sent for {tradeMeta?.name || selectedTradeCode}
+                {currentSelections.length} email{currentSelections.length !== 1 ? "s" : ""} will be sent for {selectedCostCentreCount} cost centre{selectedCostCentreCount !== 1 ? "s" : ""}.
               </p>
               <div className="flex gap-2 pt-2">
                 <Button
