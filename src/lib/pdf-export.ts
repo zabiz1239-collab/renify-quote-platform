@@ -35,6 +35,7 @@ const LIGHT_GREEN: [number, number, number] = [230, 243, 233];
 const LIGHT_GRAY: [number, number, number] = [245, 245, 245];
 const DARK_TEXT: [number, number, number] = [33, 33, 33];
 const MEDIUM_TEXT: [number, number, number] = [100, 100, 100];
+const RENIFY_LOGO_PATH = "/renify_logo.png";
 
 function formatCurrency(value: number): string {
   return `$${value.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -59,9 +60,31 @@ function truncateText(doc: jsPDF, text: string, maxWidth: number): string {
   return truncated + "...";
 }
 
+async function loadImageDataUrl(src: string): Promise<string | null> {
+  if (typeof window === "undefined" || typeof fetch === "undefined" || typeof FileReader === "undefined") {
+    return null;
+  }
+
+  try {
+    const response = await fetch(src);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function exportComparisonPDF(params: ExportComparisonParams): Promise<void> {
   const { jobCode, jobAddress, tradeName, tradeCode, markupPercent, rows, historicalData } = params;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const logoDataUrl = await loadImageDataUrl(RENIFY_LOGO_PATH);
   const pageHeight = 210; // A4 landscape height
   const landscapeWidth = 297;
   const landscapeMargin = 15;
@@ -75,19 +98,29 @@ export async function exportComparisonPDF(params: ExportComparisonParams): Promi
   }
 
   // --- Header ---
-  doc.setFillColor(...BRAND_GREEN);
-  doc.rect(0, 0, landscapeWidth, 28, "F");
+  doc.setFillColor(...WHITE);
+  doc.rect(0, 0, landscapeWidth, 34, "F");
 
-  doc.setTextColor(...WHITE);
-  doc.setFontSize(18);
+  const headerTextX = logoDataUrl ? landscapeMargin + 34 : landscapeMargin;
+  if (logoDataUrl) {
+    doc.addImage(logoDataUrl, "PNG", landscapeMargin, 5, 24, 24);
+  }
+
+  doc.setTextColor(...BRAND_GREEN);
+  doc.setFontSize(17);
   doc.setFont("helvetica", "bold");
-  doc.text("Renify Building & Construction", landscapeMargin, 12);
+  doc.text("Renify Building & Construction", headerTextX, 13);
 
+  doc.setTextColor(...DARK_TEXT);
   doc.setFontSize(12);
   doc.setFont("helvetica", "normal");
-  doc.text("Price Comparison Report", landscapeMargin, 22);
+  doc.text("Price Comparison Report", headerTextX, 23);
 
-  y = 36;
+  doc.setDrawColor(...BRAND_GREEN);
+  doc.setLineWidth(1.2);
+  doc.line(0, 34, landscapeWidth, 34);
+
+  y = 42;
 
   // --- Job Details ---
   doc.setTextColor(...DARK_TEXT);
