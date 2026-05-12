@@ -40,12 +40,11 @@ import {
   DEFAULT_ATTACHMENT_CATEGORIES,
   pruneAttachmentPreferences,
 } from "@/lib/attachments";
+import { DEFAULT_REGIONS, mergeRegions } from "@/lib/regions";
 import type { AttachmentPreferences, JobDocumentCategory, Supplier, SupplierCategory } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
 import { toast } from "sonner";
-
-const DEFAULT_REGIONS = ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"];
 
 const TRADE_CATEGORY_ORDER = [
   { key: "siteworks", label: "Siteworks", range: [15, 100] },
@@ -133,6 +132,7 @@ export default function SuppliersPage() {
   const [scraperLoading, setScraperLoading] = useState(false);
   const [selectedResults, setSelectedResults] = useState<Set<number>>(new Set());
   const [scraperRegions, setScraperRegions] = useState<string[]>(DEFAULT_REGIONS);
+  const [regionOptions, setRegionOptions] = useState<string[]>(DEFAULT_REGIONS);
   const [scraperSaving, setScraperSaving] = useState(false);
 
   // Email finder modal state
@@ -171,7 +171,9 @@ export default function SuppliersPage() {
     loadSuppliers();
     // Load regions, custom categories and custom trades from settings
     getSettings().then((s) => {
-      if (s.regions && s.regions.length > 0) setScraperRegions(s.regions);
+      const mergedRegions = mergeRegions(s.regions);
+      setScraperRegions(mergedRegions);
+      setRegionOptions(mergedRegions);
       if (s.supplierCategories) setCustomCategories(s.supplierCategories);
       if (s.customTrades) setCustomTrades(s.customTrades);
     }).catch(() => {});
@@ -922,7 +924,7 @@ export default function SuppliersPage() {
                 <DialogHeader>
                   <DialogTitle>Find Local Trades</DialogTitle>
                   <DialogDescription>
-                    Search Google Places for local suppliers by trade and region.
+                    Search Google Places for local suppliers by trade and state or region.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
@@ -963,10 +965,10 @@ export default function SuppliersPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Region</Label>
+                      <Label>State / Region</Label>
                       <Select value={scraperRegion} onValueChange={setScraperRegion}>
                         <SelectTrigger className="min-h-[44px]">
-                          <SelectValue placeholder="Select region" />
+                          <SelectValue placeholder="Select state or region" />
                         </SelectTrigger>
                         <SelectContent>
                           {scraperRegions.map((r) => (
@@ -1430,9 +1432,9 @@ export default function SuppliersPage() {
 
                   {/* Regions */}
                   <div className="space-y-2">
-                    <Label>Regions</Label>
+                    <Label>States / Regions</Label>
                     <div className="flex flex-wrap gap-2">
-                      {DEFAULT_REGIONS.map((region) => (
+                      {regionOptions.map((region) => (
                         <label
                           key={region}
                           className="flex items-center gap-2 px-3 py-2 rounded-lg border hover:bg-muted cursor-pointer min-h-[44px]"

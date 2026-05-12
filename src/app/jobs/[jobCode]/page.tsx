@@ -25,12 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown } from "lucide-react";
-import { getJob, getEstimators, getSuppliers, saveJob } from "@/lib/supabase";
+import { getJob, getEstimators, getSuppliers, getSettings, saveJob } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { toast } from "sonner";
 import type { Job, Estimator, Supplier } from "@/types";
+import { DEFAULT_REGIONS, mergeRegions, supplierMatchesRegion } from "@/lib/regions";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-blue-100 text-blue-800",
@@ -59,6 +60,7 @@ export default function JobDetailPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [estimator, setEstimator] = useState<Estimator | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [regionOptions, setRegionOptions] = useState<string[]>(DEFAULT_REGIONS);
   const [loading, setLoading] = useState(true);
   const [uploadingZone, setUploadingZone] = useState<string | null>(null);
 
@@ -195,13 +197,15 @@ export default function JobDetailPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [jobData, estimators, suppliersData] = await Promise.all([
+      const [jobData, estimators, suppliersData, settings] = await Promise.all([
         getJob(decodeURIComponent(jobCode)),
         getEstimators(),
         getSuppliers(),
+        getSettings(),
       ]);
       setJob(jobData);
       setSuppliers(suppliersData);
+      setRegionOptions(mergeRegions(settings.regions));
       if (jobData?.estimatorId) {
         setEstimator(estimators.find((e) => e.id === jobData.estimatorId) || null);
       }
@@ -274,7 +278,13 @@ export default function JobDetailPage() {
     setReceiveOpen(true);
   }
 
-  const receiveMatchingSuppliers = suppliers.filter((s) => s.trades.includes(receiveTradeCode));
+  const receiveTradeSuppliers = suppliers.filter((s) => s.trades.includes(receiveTradeCode));
+  const receiveMatchingSuppliers = receiveTradeSuppliers.filter((s) =>
+    supplierMatchesRegion(s.regions, job?.region)
+  );
+  const receiveOtherRegionSuppliers = receiveTradeSuppliers.filter(
+    (s) => !supplierMatchesRegion(s.regions, job?.region)
+  );
 
   async function handleOcr() {
     if (!receiveFile) return;
@@ -356,36 +366,72 @@ export default function JobDetailPage() {
     { category: "engineering", label: "Engineering", accept: ".pdf" },
     { category: "scope", label: "Inclusions", accept: ".pdf" },
     { category: "colour_selection", label: "Colour Selection", accept: ".pdf" },
+    { category: "energy_rating", label: "Energy Rating", accept: ".pdf" },
     { category: "other", label: "Other", accept: ".pdf" },
   ] as const;
 
   async function handleFileUpload(file: File, category: string) {
     if (!job) return;
+    const currentJob = job;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Only PDF files are accepted");
+      return;
+    }
+
     setUploadingZone(category);
     try {
-      // Upload PDF directly to Supabase Storage from the browser. This bypasses
-      // Vercel's 4.5MB request-body limit (which is what was blocking plans).
-      const storagePath = `${job.jobCode}/${category}/${file.name}`;
-      const { error: storageErr } = await supabase.storage
-        .from("project-documents")
-        .upload(storagePath, file, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-      if (storageErr) throw new Error(`Storage upload failed: ${storageErr.message}`);
+      const storagePath = `${currentJob.jobCode}/${category}/${file.name}`;
 
-      // Now tell the API where the file landed (small JSON, no body-limit issue).
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobCode: job.jobCode,
-          address: job.address,
-          category,
-          fileName: file.name,
-          storagePath,
-        }),
-      });
+      const registerStorageUpload = async () => {
+        const { error: storageErr } = await supabase.storage
+          .from("project-documents")
+          .upload(storagePath, file, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+        if (storageErr) throw new Error(`Storage upload failed: ${storageErr.message}`);
+
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobCode: currentJob.jobCode,
+            address: currentJob.address,
+            category,
+            fileName: file.name,
+            storagePath,
+          }),
+        });
+        return res;
+      };
+
+      const uploadThroughApi = async () => {
+        const formData = new FormData();
+        formData.append("jobCode", currentJob.jobCode);
+        formData.append("address", currentJob.address);
+        formData.append("category", category);
+        formData.append("file", file);
+
+        return fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+      };
+
+      let res: Response;
+      try {
+        res = await registerStorageUpload();
+      } catch (storageErr) {
+        console.warn("[Upload] Direct storage upload failed; using API fallback:", storageErr);
+        res = await uploadThroughApi();
+      }
+
+      if (!res.ok) {
+        // If the storage upload worked but the server could not read it because
+        // storage policies are missing, retry with the multipart fallback.
+        res = await uploadThroughApi();
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       toast.success(`Uploaded ${file.name}`);
@@ -433,7 +479,7 @@ export default function JobDetailPage() {
           <CardHeader><CardTitle>Job Details</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              <div><span className="text-muted-foreground">Region:</span> {job.region}</div>
+              <div><span className="text-muted-foreground">State / Region:</span> {job.region}</div>
               <div><span className="text-muted-foreground">Build Type:</span> {job.buildType}</div>
               <div><span className="text-muted-foreground">Storeys:</span> {job.storeys}</div>
               {estimator && <div><span className="text-muted-foreground">Estimator:</span> {estimator.name}</div>}
@@ -853,18 +899,16 @@ export default function JobDetailPage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="_none" disabled>No suppliers for this trade</SelectItem>
+                      <SelectItem value="_none" disabled>No suppliers for this state/region and trade</SelectItem>
                     )}
-                    {receiveMatchingSuppliers.length > 0 && suppliers.length > receiveMatchingSuppliers.length && (
+                    {receiveOtherRegionSuppliers.length > 0 && (
                       <>
-                        <SelectItem value="_div" disabled>── Other suppliers ──</SelectItem>
-                        {suppliers
-                          .filter((s) => !receiveMatchingSuppliers.some((m) => m.id === s.id))
-                          .map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.company} ({s.email || "no email"})
-                            </SelectItem>
-                          ))}
+                        <SelectItem value="_div" disabled>Other state/region suppliers</SelectItem>
+                        {receiveOtherRegionSuppliers.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.company} ({s.email || "no email"})
+                          </SelectItem>
+                        ))}
                       </>
                     )}
                   </SelectContent>
@@ -983,14 +1027,14 @@ export default function JobDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Region *</Label>
+                <Label>State / Region *</Label>
                 <select
                   value={editForm.region}
                   onChange={(e) => setEditForm((f) => ({ ...f, region: e.target.value }))}
                   className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px]"
                 >
-                  <option value="">Select region</option>
-                  {["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"].map((r) => (
+                  <option value="">Select state or region</option>
+                  {regionOptions.map((r) => (
                     <option key={r} value={r}>{r}</option>
                   ))}
                 </select>

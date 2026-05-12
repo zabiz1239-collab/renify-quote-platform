@@ -15,6 +15,7 @@ import { saveJob as saveJobToSupabase, getSettings } from "@/lib/supabase";
 import { toast } from "sonner";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { Job } from "@/types";
+import { DEFAULT_REGIONS, mergeRegions } from "@/lib/regions";
 import Link from "next/link";
 import { ChevronRight, ChevronDown, Search, AlertTriangle, Upload, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -45,7 +46,6 @@ const GROUPED_TRADES = TRADE_CATEGORY_ORDER.map((cat) => ({
 
 const BUILD_TYPES = ["New Build", "Dual Occ", "Extension", "Renovation"] as const;
 const STOREYS = ["Single", "Double", "Triple"] as const;
-const DEFAULT_REGIONS = ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"];
 
 export default function NewJobPage() {
   usePageTitle("New Job");
@@ -55,6 +55,7 @@ export default function NewJobPage() {
   const [error, setError] = useState("");
   const [touched, setTouched] = useState(false);
   const [authWarning, setAuthWarning] = useState("");
+  const [regionOptions, setRegionOptions] = useState<string[]>(DEFAULT_REGIONS);
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -65,6 +66,12 @@ export default function NewJobPage() {
       setAuthWarning("");
     }
   }, [session?.accessToken, session?.error]);
+
+  useEffect(() => {
+    getSettings()
+      .then((settings) => setRegionOptions(mergeRegions(settings.regions)))
+      .catch(() => setRegionOptions(DEFAULT_REGIONS));
+  }, []);
 
   const [form, setForm] = useState({
     jobCode: "",
@@ -321,19 +328,19 @@ export default function NewJobPage() {
                   {touched && !form.jobCode && <p className="text-xs text-red-500">Job Code is required</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="region">Region *</Label>
+                  <Label htmlFor="region">State / Region *</Label>
                   <select
                     id="region"
                     value={form.region}
                     onChange={(e) => updateField("region", e.target.value)}
                     className={`flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[44px] ${touched && !form.region ? "border-red-500" : ""}`}
                   >
-                    <option value="">Select region</option>
-                    {DEFAULT_REGIONS.map((r) => (
+                    <option value="">Select state or region</option>
+                    {regionOptions.map((r) => (
                       <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
-                  {touched && !form.region && <p className="text-xs text-red-500">Region is required</p>}
+                  {touched && !form.region && <p className="text-xs text-red-500">State / region is required</p>}
                 </div>
               </div>
 

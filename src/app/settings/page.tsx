@@ -17,10 +17,11 @@ import { usePageTitle } from "@/hooks/usePageTitle";
 import { TRADES } from "@/data/trades";
 import type { AppSettings } from "@/types";
 import { DEFAULT_ONEDRIVE_ROOT } from "@/types";
+import { DEFAULT_REGIONS, mergeRegions } from "@/lib/regions";
 
 const DEFAULT_SETTINGS: AppSettings = {
   oneDriveRootPath: DEFAULT_ONEDRIVE_ROOT,
-  regions: ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"],
+  regions: DEFAULT_REGIONS,
   followUpDays: {
     first: 7,
     second: 14,
@@ -59,7 +60,7 @@ export default function SettingsPage() {
   async function loadSettings() {
     try {
       const data = await fetchSettings();
-      setSettings({ ...DEFAULT_SETTINGS, ...data });
+      setSettings({ ...DEFAULT_SETTINGS, ...data, regions: mergeRegions(data.regions) });
       // Load conflicts and backups
       loadConflicts();
       loadBackups();
@@ -175,9 +176,9 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Regions</CardTitle>
+            <CardTitle>States / Regions</CardTitle>
             <CardDescription>
-              Manage the regions available in dropdown menus throughout the app.
+              Manage the states and regions available in dropdown menus throughout the app.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -203,7 +204,7 @@ export default function SettingsPage() {
               <Input
                 value={newRegion}
                 onChange={(e) => setNewRegion(e.target.value)}
-                placeholder="New region name"
+                placeholder="New state or region name"
                 className="min-h-[44px]"
                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addRegion())}
               />

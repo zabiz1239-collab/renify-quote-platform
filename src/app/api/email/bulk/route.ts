@@ -2,13 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
-import { getEstimators, getTemplates, getJob, saveJob, getSuppliers } from "@/lib/supabase";
+import { getEstimators, getTemplates, getJob, saveJob, getSuppliers, getSettings } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
+import { downloadFile } from "@/lib/onedrive";
 import { renderTemplate, findTemplate, getGroupedTradeCodes, getTradeDisplayName } from "@/lib/templates";
 import { getSelectedDocumentsForSupplier } from "@/lib/attachments";
-import type { JobDocument } from "@/types";
+import type { Job, JobDocument, JobDocumentCategory } from "@/types";
 
 const MAX_SMTP_SIZE = 20 * 1024 * 1024; // 20MB
+
+const CATEGORY_FOLDERS: Record<JobDocumentCategory, string> = {
+  architectural: "Plans",
+  engineering: "Engineering",
+  scope: "Inclusions",
+  colour_selection: "Colour Selection",
+  energy_rating: "Energy Rating",
+  other: "Other",
+};
 
 interface DownloadedFile {
   name: string;
@@ -21,29 +31,51 @@ interface AttachmentSelection {
   documentKeys: string[];
 }
 
-async function downloadAttachmentFiles(jobCode: string, documents: JobDocument[]): Promise<DownloadedFile[]> {
+async function downloadAttachmentFiles(
+  accessToken: string,
+  job: Job,
+  documents: JobDocument[]
+): Promise<DownloadedFile[]> {
   const files: DownloadedFile[] = [];
+  const settings = await getSettings().catch(() => null);
 
   for (const doc of documents) {
     if (doc.type !== "upload") continue;
 
-    const storagePath = doc.storagePath || `${jobCode}/${doc.category}/${doc.fileName || doc.name}`;
+    const storagePath = doc.storagePath || `${job.jobCode}/${doc.category}/${doc.fileName || doc.name}`;
 
     try {
       const { data, error } = await supabase.storage
         .from("project-documents")
         .download(storagePath);
 
-      if (error) {
-        console.error(`[Email] Storage download failed for ${storagePath}:`, error.message);
+      if (error || !data) {
+        console.error(`[Email] Storage download failed for ${storagePath}:`, error?.message || "No data returned");
+      } else {
+        const arrayBuffer = await data.arrayBuffer();
+        const buf = Buffer.from(arrayBuffer);
+        files.push({ name: doc.name, content: buf, size: buf.length });
         continue;
       }
+    } catch (err) {
+      console.error(`[Email] Failed to download ${storagePath}:`, err);
+    }
 
-      const arrayBuffer = await data.arrayBuffer();
+    const fileName = doc.fileName || doc.name;
+    const oneDrivePath =
+      doc.oneDrivePath ||
+      (settings?.oneDriveRootPath
+        ? `${settings.oneDriveRootPath}/${job.jobCode} - ${job.address}/${CATEGORY_FOLDERS[doc.category]}/${fileName}`
+        : "");
+
+    if (!oneDrivePath) continue;
+
+    try {
+      const arrayBuffer = await downloadFile(accessToken, oneDrivePath);
       const buf = Buffer.from(arrayBuffer);
       files.push({ name: doc.name, content: buf, size: buf.length });
     } catch (err) {
-      console.error(`[Email] Failed to download ${storagePath}:`, err);
+      console.error(`[Email] OneDrive fallback download failed for ${oneDrivePath}:`, err);
     }
   }
 
@@ -150,7 +182,7 @@ export async function POST(request: NextRequest) {
       tradeCodes,
       attachmentOverrides.get(supplierId)
     );
-    let attachmentFiles = await downloadAttachmentFiles(jobCode, selectedDocuments);
+    let attachmentFiles = await downloadAttachmentFiles(session.accessToken, job, selectedDocuments);
 
     const totalSize = attachmentFiles.reduce((sum, file) => sum + file.size, 0);
     if (totalSize > MAX_SMTP_SIZE) {

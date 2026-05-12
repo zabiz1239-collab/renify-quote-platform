@@ -11,6 +11,7 @@ import { FolderPicker } from "@/components/ui/folder-picker";
 import { getSettings as fetchSettings, saveSettings as saveSettingsToDb } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import type { AppSettings } from "@/types";
+import { DEFAULT_REGIONS, mergeRegions } from "@/lib/regions";
 
 export default function SetupPage() {
   usePageTitle("Setup");
@@ -57,12 +58,13 @@ export default function SetupPage() {
       await saveSettingsToDb({
         ...(settings || {
           oneDriveRootPath: "",
-          regions: ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"],
+          regions: DEFAULT_REGIONS,
           followUpDays: { first: 7, second: 14 },
           quoteExpiryWarningDays: [30, 60, 90],
           defaultMarkupPercent: 15,
           adminEmail: "",
         }),
+        regions: mergeRegions(settings?.regions),
         oneDriveRootPath: selectedPath,
       });
       setSaved(true);

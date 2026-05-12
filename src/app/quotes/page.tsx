@@ -32,6 +32,7 @@ import {
   getAttachmentPreferenceCategories,
   getJobDocumentKey,
 } from "@/lib/attachments";
+import { supplierMatchesRegion } from "@/lib/regions";
 import type { Job, Supplier, EmailTemplate } from "@/types";
 import { toast } from "sonner";
 
@@ -101,11 +102,17 @@ export default function SendQuotesPage() {
     [checkedSuppliers, suppliers]
   );
 
-  // Get all suppliers for the selected trade (no region filter — show everything)
-  const tradeSuppliers = useMemo(() => {
+  const allTradeSuppliers = useMemo(() => {
     if (!selectedTradeCode) return [];
     return suppliers.filter((s) => s.trades.includes(selectedTradeCode));
   }, [suppliers, selectedTradeCode]);
+
+  const tradeSuppliers = useMemo(() => {
+    if (!selectedTradeCode) return [];
+    return allTradeSuppliers.filter((s) => supplierMatchesRegion(s.regions, selectedJob?.region));
+  }, [allTradeSuppliers, selectedJob?.region, selectedTradeCode]);
+
+  const excludedByRegionCount = allTradeSuppliers.length - tradeSuppliers.length;
 
   // Filter by search term
   const filteredSuppliers = useMemo(() => {
@@ -318,7 +325,7 @@ export default function SendQuotesPage() {
                     <p className="font-medium">{selectedJob.address}</p>
                     <p className="text-sm text-muted-foreground">
                       Due: {selectedJob.targetDate ? new Date(selectedJob.targetDate).toLocaleDateString() : "No date set"}
-                      {selectedJob.region && <> &middot; Region: {selectedJob.region}</>}
+                      {selectedJob.region && <> &middot; State / Region: {selectedJob.region}</>}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -367,12 +374,14 @@ export default function SendQuotesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {(selectedJob.trades || []).map((trade) => {
-                    const supplierCount = suppliers.filter((s) => s.trades.includes(trade.code)).length;
+                    const supplierCount = suppliers.filter(
+                      (s) => s.trades.includes(trade.code) && supplierMatchesRegion(s.regions, selectedJob.region)
+                    ).length;
                     const requested = (trade.quotes || []).filter((q) => q.status === "requested").length;
                     const received = (trade.quotes || []).filter((q) => q.status === "received" || q.status === "accepted").length;
                     return (
                       <SelectItem key={trade.code} value={trade.code}>
-                        {trade.code} {trade.name} ({supplierCount} suppliers)
+                        {trade.code} {trade.name} ({supplierCount} supplier{supplierCount !== 1 ? "s" : ""} in {selectedJob.region})
                         {requested > 0 && ` — ${requested} requested`}
                         {received > 0 && ` — ${received} received`}
                       </SelectItem>
@@ -459,7 +468,7 @@ export default function SendQuotesPage() {
                 <CardTitle>
                   3. Select Suppliers — {tradeMeta?.name || selectedTradeCode}
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({tradeSuppliers.length} total, {checkedSuppliers.size} selected)
+                    ({tradeSuppliers.length} in {selectedJob?.region || "selected region"}, {checkedSuppliers.size} selected)
                   </span>
                 </CardTitle>
               </div>
@@ -486,12 +495,18 @@ export default function SendQuotesPage() {
                 </div>
               </div>
 
+              {selectedJob?.region && excludedByRegionCount > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {excludedByRegionCount} supplier{excludedByRegionCount !== 1 ? "s" : ""} for this trade hidden because they are linked to another state or region.
+                </p>
+              )}
+
               {/* Supplier list */}
               {filteredSuppliers.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   {supplierSearch
                     ? "No suppliers match your search."
-                    : "No suppliers found for this trade. Add some on the Suppliers page."}
+                    : `No suppliers are linked to ${selectedJob?.region || "this state or region"} for this trade. Add or update suppliers on the Suppliers page.`}
                 </p>
               ) : (
                 <div className="border rounded-lg divide-y max-h-[400px] overflow-y-auto">

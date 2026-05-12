@@ -80,6 +80,7 @@ export interface JobDocument {
   url?: string;
   fileName?: string;
   storagePath?: string; // Supabase Storage path in project-documents bucket
+  oneDrivePath?: string; // OneDrive fallback path for uploaded PDFs
 }
 
 // Job

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
 import { normalizeAttachmentPreferences } from "@/lib/attachments";
+import { DEFAULT_REGIONS } from "@/lib/regions";
 
 // Lazy client construction so `next build` "Collecting page data" can import
 // route modules without requiring runtime env vars to be present at build time.
@@ -39,7 +40,7 @@ export async function getSettings(): Promise<AppSettings> {
   if (!data) {
     return {
       oneDriveRootPath: "Desktop/Renify Business/Renify Jobs/Jobs",
-      regions: ["Western", "Northern", "South East", "Eastern", "Geelong", "Ballarat"],
+      regions: DEFAULT_REGIONS,
       followUpDays: { first: 7, second: 14 },
       quoteExpiryWarningDays: [30, 60, 90],
       defaultMarkupPercent: 15,
@@ -156,6 +157,19 @@ export async function getSuppliers(): Promise<Supplier[]> {
   }));
 }
 
+function isMissingAttachmentPreferencesColumn(error: { message?: string } | null): boolean {
+  const message = error?.message || "";
+  return message.includes("attachment_preferences") && message.includes("does not exist");
+}
+
+function omitAttachmentPreferencesColumn<T extends { attachment_preferences?: unknown }>(
+  row: T
+): Omit<T, "attachment_preferences"> {
+  const { attachment_preferences, ...fallbackRow } = row;
+  void attachment_preferences;
+  return fallbackRow;
+}
+
 export async function saveSupplier(sup: Supplier): Promise<void> {
   const row = {
     id: sup.id,
@@ -175,6 +189,12 @@ export async function saveSupplier(sup: Supplier): Promise<void> {
     attachment_preferences: sup.attachmentPreferences || {},
   };
   const { error } = await supabase.from("qp_suppliers").upsert(row);
+  if (error && isMissingAttachmentPreferencesColumn(error)) {
+    const fallbackRow = omitAttachmentPreferencesColumn(row);
+    const retry = await supabase.from("qp_suppliers").upsert(fallbackRow);
+    if (retry.error) throw retry.error;
+    return;
+  }
   if (error) throw error;
 }
 
@@ -197,6 +217,12 @@ export async function saveSuppliersBulk(suppliers: Supplier[]): Promise<void> {
     attachment_preferences: sup.attachmentPreferences || {},
   }));
   const { error } = await supabase.from("qp_suppliers").upsert(rows);
+  if (error && isMissingAttachmentPreferencesColumn(error)) {
+    const fallbackRows = rows.map(omitAttachmentPreferencesColumn);
+    const retry = await supabase.from("qp_suppliers").upsert(fallbackRows);
+    if (retry.error) throw retry.error;
+    return;
+  }
   if (error) throw error;
 }
 
