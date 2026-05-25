@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown, Send } from "lucide-react";
 import { getJob, getEstimators, getSuppliers, getSettings, saveJob, saveSupplier } from "@/lib/supabase";
-import { TRADES } from "@/data/trades";
+import { getAllTrades } from "@/data/trades";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { toast } from "sonner";
@@ -78,6 +78,16 @@ const EMPTY_SUPPLIER_EDIT_FORM: SupplierEditForm = {
   notes: "",
 };
 
+type TradeEditForm = {
+  code: string;
+  name: string;
+};
+
+const EMPTY_TRADE_EDIT_FORM: TradeEditForm = {
+  code: "",
+  name: "",
+};
+
 function formatSupplierAreas(supplier: Supplier | undefined, tradeCode?: string): string {
   const regions = getSupplierRegionsForTrade(supplier, tradeCode);
   if (regions.length === 0) return "Areas not set";
@@ -95,6 +105,7 @@ export default function JobDetailPage() {
   const [estimator, setEstimator] = useState<Estimator | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [regionOptions, setRegionOptions] = useState<string[]>(DEFAULT_REGIONS);
+  const [allTrades, setAllTrades] = useState(() => getAllTrades());
   const [loading, setLoading] = useState(true);
   const [uploadingZone, setUploadingZone] = useState<string | null>(null);
   const [expandedSupplierKey, setExpandedSupplierKey] = useState<string | null>(null);
@@ -102,6 +113,9 @@ export default function JobDetailPage() {
   const [supplierEditForm, setSupplierEditForm] = useState<SupplierEditForm>(EMPTY_SUPPLIER_EDIT_FORM);
   const [savingSupplierKey, setSavingSupplierKey] = useState<string | null>(null);
   const [resendingSupplierKey, setResendingSupplierKey] = useState<string | null>(null);
+  const [editingTradeCode, setEditingTradeCode] = useState<string | null>(null);
+  const [tradeEditForm, setTradeEditForm] = useState<TradeEditForm>(EMPTY_TRADE_EDIT_FORM);
+  const [savingTradeCode, setSavingTradeCode] = useState<string | null>(null);
 
   // Edit job dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -175,7 +189,7 @@ export default function JobDetailPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [tradeSaving, setTradeSaving] = useState(false);
 
-  const QUOTABLE_TRADES = TRADES.filter((t) => t.quotable);
+  const QUOTABLE_TRADES = allTrades.filter((t) => t.quotable);
   const TRADE_CATEGORY_ORDER = [
     { key: "siteworks", label: "Siteworks", range: [15, 100] },
     { key: "structure", label: "Structure", range: [105, 195] },
@@ -211,6 +225,83 @@ export default function JobDetailPage() {
     );
   }
 
+  function openTradeEditor(trade: Job["trades"][number]) {
+    setEditingTradeCode(trade.code);
+    setTradeEditForm({
+      code: trade.code,
+      name: trade.name,
+    });
+  }
+
+  function cancelTradeEdit() {
+    setEditingTradeCode(null);
+    setTradeEditForm(EMPTY_TRADE_EDIT_FORM);
+  }
+
+  async function handleTradeSave(originalCode: string) {
+    if (!job) return;
+    const code = tradeEditForm.code.trim();
+    const name = tradeEditForm.name.trim();
+    if (!code || !name) {
+      toast.error("Trade code and name are required");
+      return;
+    }
+    if ((job.trades || []).some((trade) => trade.code === code && trade.code !== originalCode)) {
+      toast.error(`Trade ${code} is already on this job`);
+      return;
+    }
+
+    setSavingTradeCode(originalCode);
+    try {
+      const updatedJob: Job = {
+        ...job,
+        trades: (job.trades || []).map((trade) =>
+          trade.code === originalCode ? { ...trade, code, name } : trade
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      setExpandedSupplierKey(null);
+      cancelTradeEdit();
+      toast.success("Trade updated for this job");
+    } catch (err) {
+      console.error("Failed to update trade:", err);
+      toast.error("Failed to update trade");
+    } finally {
+      setSavingTradeCode(null);
+    }
+  }
+
+  async function handleRemoveTradeFromJob(tradeCode: string, tradeName: string) {
+    if (!job) return;
+    const trade = (job.trades || []).find((t) => t.code === tradeCode);
+    const quoteCount = trade?.quotes?.length || 0;
+    const message = quoteCount > 0
+      ? `Remove ${tradeCode} ${tradeName} and its ${quoteCount} quote${quoteCount !== 1 ? "s" : ""} from this job?`
+      : `Remove ${tradeCode} ${tradeName} from this job?`;
+    if (!confirm(message)) return;
+
+    setSavingTradeCode(tradeCode);
+    try {
+      const updatedJob: Job = {
+        ...job,
+        trades: (job.trades || []).filter((t) => t.code !== tradeCode),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      if (editingTradeCode === tradeCode) cancelTradeEdit();
+      setExpandedSupplierKey(null);
+      toast.success(`${tradeName} removed from this job`);
+    } catch (err) {
+      console.error("Failed to remove trade:", err);
+      toast.error("Failed to remove trade from job");
+    } finally {
+      setSavingTradeCode(null);
+    }
+  }
+
   async function handleSaveTrades() {
     if (!job) return;
     setTradeSaving(true);
@@ -219,7 +310,7 @@ export default function JobDetailPage() {
       const existingMap = new Map((job.trades || []).map((t) => [t.code, t]));
       const updatedTrades = selectedTrades.map((code) => {
         if (existingMap.has(code)) return existingMap.get(code)!;
-        const tradeDef = TRADES.find((t) => t.code === code);
+        const tradeDef = allTrades.find((t) => t.code === code);
         return { code, name: tradeDef?.name || code, quotes: [] };
       });
       const updatedJob: Job = { ...job, trades: updatedTrades, updatedAt: new Date().toISOString() };
@@ -245,6 +336,7 @@ export default function JobDetailPage() {
       setJob(jobData);
       setSuppliers(suppliersData);
       setRegionOptions(mergeRegions(settings.regions));
+      setAllTrades(getAllTrades(settings.customTrades));
       if (jobData?.estimatorId) {
         setEstimator(estimators.find((e) => e.id === jobData.estimatorId) || null);
       }
@@ -304,13 +396,9 @@ export default function JobDetailPage() {
     setSupplierEditForm(EMPTY_SUPPLIER_EDIT_FORM);
   }
 
-  async function handleSupplierSave(key: string, supplierId: string) {
+  async function handleSupplierSave(key: string, supplierId: string, tradeCode: string) {
     if (!job) return;
     const existing = suppliers.find((s) => s.id === supplierId);
-    if (!existing) {
-      toast.error("Supplier record not found");
-      return;
-    }
     const company = supplierEditForm.company.trim();
     if (!company) {
       toast.error("Supplier company is required");
@@ -319,22 +407,54 @@ export default function JobDetailPage() {
 
     setSavingSupplierKey(key);
     try {
-      const updatedSupplier: Supplier = {
-        ...existing,
-        company,
-        contact: supplierEditForm.contact.trim(),
-        email: supplierEditForm.email.trim(),
-        cc: supplierEditForm.cc.trim() || undefined,
-        phone: supplierEditForm.phone.trim(),
-        abn: supplierEditForm.abn.trim() || undefined,
-        website: supplierEditForm.website.trim() || undefined,
-        notes: supplierEditForm.notes.trim(),
-      };
+      const existingTradeRegions = existing?.tradeRegions || {};
+      const updatedSupplier: Supplier = existing
+        ? {
+            ...existing,
+            company,
+            contact: supplierEditForm.contact.trim(),
+            email: supplierEditForm.email.trim(),
+            cc: supplierEditForm.cc.trim() || undefined,
+            phone: supplierEditForm.phone.trim(),
+            abn: supplierEditForm.abn.trim() || undefined,
+            website: supplierEditForm.website.trim() || undefined,
+            notes: supplierEditForm.notes.trim(),
+            trades: Array.from(new Set([...(existing.trades || []), tradeCode])),
+            regions: (existing.regions || []).length > 0
+              ? existing.regions
+              : job.region
+                ? [job.region]
+                : [],
+            tradeRegions: existingTradeRegions[tradeCode]?.length || !job.region
+              ? existingTradeRegions
+              : { ...existingTradeRegions, [tradeCode]: [job.region] },
+          }
+        : {
+            id: supplierId,
+            company,
+            contact: supplierEditForm.contact.trim(),
+            email: supplierEditForm.email.trim(),
+            cc: supplierEditForm.cc.trim() || undefined,
+            phone: supplierEditForm.phone.trim(),
+            abn: supplierEditForm.abn.trim() || undefined,
+            website: supplierEditForm.website.trim() || undefined,
+            notes: supplierEditForm.notes.trim(),
+            trades: [tradeCode],
+            regions: job.region ? [job.region] : [],
+            status: "unverified",
+            rating: 3,
+            tradeRegions: job.region ? { [tradeCode]: [job.region] } : {},
+          };
 
       await saveSupplier(updatedSupplier);
-      setSuppliers((prev) => prev.map((s) => (s.id === supplierId ? updatedSupplier : s)));
+      setSuppliers((prev) => {
+        const next = prev.some((s) => s.id === supplierId)
+          ? prev.map((s) => (s.id === supplierId ? updatedSupplier : s))
+          : [...prev, updatedSupplier];
+        return next.sort((a, b) => a.company.localeCompare(b.company));
+      });
 
-      if (updatedSupplier.company !== existing.company) {
+      if (!existing || updatedSupplier.company !== existing.company) {
         const updatedJob: Job = {
           ...job,
           trades: (job.trades || []).map((trade) => ({
@@ -358,6 +478,33 @@ export default function JobDetailPage() {
       toast.error("Failed to update supplier");
     } finally {
       setSavingSupplierKey(null);
+    }
+  }
+
+  async function handleRemoveQuoteRequest(tradeCode: string, quoteIndex: number, supplierName: string) {
+    if (!job) return;
+    if (!confirm(`Remove ${supplierName} from this job trade?`)) return;
+
+    try {
+      const updatedJob: Job = {
+        ...job,
+        trades: (job.trades || []).map((trade) => {
+          if (trade.code !== tradeCode) return trade;
+          return {
+            ...trade,
+            quotes: (trade.quotes || []).filter((_, index) => index !== quoteIndex),
+          };
+        }),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveJob(updatedJob);
+      setJob(updatedJob);
+      setExpandedSupplierKey(null);
+      cancelSupplierEdit();
+      toast.success(`${supplierName} removed from this job`);
+    } catch (err) {
+      console.error("Failed to remove supplier from job:", err);
+      toast.error("Failed to remove supplier from job");
     }
   }
 
@@ -791,22 +938,34 @@ export default function JobDetailPage() {
                 const latestStatus = bestQuote?.status ||
                   trade.quotes?.[trade.quotes.length - 1]?.status || "not_started";
 
-                const requestedQuotes = (trade.quotes || []).filter((q) => q.status === "requested");
+                const requestedQuotes = (trade.quotes || [])
+                  .map((q, index) => ({ q, index }))
+                  .filter(({ q }) => q.status === "requested");
+                const tradeExistsInSystem = allTrades.some((t) => t.code === trade.code);
+                const isTradeEditing = editingTradeCode === trade.code;
+                const isTradeSaving = savingTradeCode === trade.code;
 
                 return (
                   <div key={trade.code} className="border-b last:border-b-0">
-                    <div className="flex items-center justify-between py-2">
+                    <div className="flex flex-col gap-2 py-2 lg:flex-row lg:items-center lg:justify-between">
                       <div className="flex items-center gap-2">
                         {QUOTE_STATUS_ICON[latestStatus] || QUOTE_STATUS_ICON.not_started}
                         <div>
-                          <p className="text-sm">
-                            <span className="text-muted-foreground">{trade.code}</span>{" "}
-                            {trade.name}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm">
+                              <span className="text-muted-foreground">{trade.code}</span>{" "}
+                              {trade.name}
+                            </p>
+                            {!tradeExistsInSystem && (
+                              <Badge variant="outline" className="text-xs border-amber-300 text-amber-700">
+                                Missing from trade list
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground">Job area: {job.region}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {bestQuote?.priceExGST && (
                           <span className="text-sm font-mono">${bestQuote.priceExGST.toLocaleString()}</span>
                         )}
@@ -817,6 +976,29 @@ export default function JobDetailPage() {
                           {trade.quotes?.length || 0} quote{(trade.quotes?.length || 0) !== 1 ? "s" : ""}
                         </span>
                         <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isTradeSaving}
+                          className="min-h-[36px] text-xs"
+                          onClick={() => openTradeEditor(trade)}
+                        >
+                          <Pencil className="w-3 h-3 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isTradeSaving}
+                          className="min-h-[36px] text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleRemoveTradeFromJob(trade.code, trade.name)}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          Remove
+                        </Button>
+                        <Button
+                          type="button"
                           variant="outline"
                           size="sm"
                           className="min-h-[36px] text-xs border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
@@ -827,10 +1009,55 @@ export default function JobDetailPage() {
                         </Button>
                       </div>
                     </div>
+                    {isTradeEditing && (
+                      <div className="mb-3 ml-6 rounded-lg border bg-muted/30 p-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_1fr]">
+                          <div className="space-y-1">
+                            <Label>Trade Code *</Label>
+                            <Input
+                              value={tradeEditForm.code}
+                              onChange={(e) => setTradeEditForm((f) => ({ ...f, code: e.target.value }))}
+                              className="min-h-[44px] bg-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Trade Name *</Label>
+                            <Input
+                              value={tradeEditForm.name}
+                              onChange={(e) => setTradeEditForm((f) => ({ ...f, name: e.target.value }))}
+                              className="min-h-[44px] bg-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            disabled={isTradeSaving || !tradeEditForm.code.trim() || !tradeEditForm.name.trim()}
+                            onClick={() => handleTradeSave(trade.code)}
+                            className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                          >
+                            {isTradeSaving ? (
+                              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                            ) : (
+                              "Save Trade"
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isTradeSaving}
+                            onClick={cancelTradeEdit}
+                            className="min-h-[44px]"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {/* Show requested quotes with clear Received button */}
                     {requestedQuotes.length > 0 && (
                       <div className="pl-6 pb-3 space-y-2">
-                        {requestedQuotes.map((q, qi) => {
+                        {requestedQuotes.map(({ q, index: quoteIndex }, qi) => {
                           const supplier = suppliers.find((s) => s.id === q.supplierId);
                           const supplierKey = `${trade.code}:${q.supplierId}:${q.version}:${q.requestedDate || qi}`;
                           const supplierName = supplier?.company || q.supplierName;
@@ -855,10 +1082,10 @@ export default function JobDetailPage() {
                                     <p className="text-sm font-medium truncate">{supplierName}</p>
                                     <p className="text-xs text-muted-foreground">
                                       Requested {q.requestedDate ? new Date(q.requestedDate).toLocaleDateString("en-AU") : ""}
-                                      {supplier?.email ? ` - ${supplier.email}` : " - no email saved"}
+                                      {supplier ? (supplier.email ? ` - ${supplier.email}` : " - no email saved") : " - supplier missing"}
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                      Areas: {formatSupplierAreas(supplier, trade.code)}
+                                      {supplier ? `Areas: ${formatSupplierAreas(supplier, trade.code)}` : "Edit to recreate this supplier record"}
                                       {q.lastFollowUp ? ` - chased ${new Date(q.lastFollowUp).toLocaleDateString("en-AU")}` : ""}
                                     </p>
                                   </div>
@@ -869,7 +1096,7 @@ export default function JobDetailPage() {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    disabled={!supplier || isSaving}
+                                    disabled={isSaving}
                                     className="min-h-[44px] px-3 text-xs"
                                     onClick={() => openSupplierEditor(supplierKey, supplier, q.supplierName)}
                                   >
@@ -893,6 +1120,17 @@ export default function JobDetailPage() {
                                   </Button>
                                   <Button
                                     type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={isSaving || isResending}
+                                    className="min-h-[44px] px-3 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => handleRemoveQuoteRequest(trade.code, quoteIndex, supplierName)}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    Remove
+                                  </Button>
+                                  <Button
+                                    type="button"
                                     size="sm"
                                     disabled={isSaving || isResending}
                                     className="min-h-[44px] px-4 bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
@@ -906,12 +1144,13 @@ export default function JobDetailPage() {
 
                               {isExpanded && (
                                 <div className="mx-2 mb-2 border-t border-blue-100 pt-3">
-                                  {!supplier ? (
-                                    <p className="text-sm text-red-600">
-                                      Supplier record not found. The quote request still references {q.supplierName}.
-                                    </p>
-                                  ) : isEditing ? (
+                                  {isEditing ? (
                                     <div className="space-y-3">
+                                      {!supplier && (
+                                        <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800">
+                                          This supplier is missing from the supplier list. Saving will recreate it for this job trade.
+                                        </p>
+                                      )}
                                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <div className="space-y-1">
                                           <Label>Company *</Label>
@@ -989,13 +1228,13 @@ export default function JobDetailPage() {
                                         <Button
                                           type="button"
                                           disabled={isSaving || !supplierEditForm.company.trim()}
-                                          onClick={() => handleSupplierSave(supplierKey, q.supplierId)}
+                                          onClick={() => handleSupplierSave(supplierKey, q.supplierId, trade.code)}
                                           className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                                         >
                                           {isSaving ? (
                                             <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
                                           ) : (
-                                            "Save Supplier"
+                                            supplier ? "Save Supplier" : "Recreate Supplier"
                                           )}
                                         </Button>
                                         <Button
@@ -1009,6 +1248,10 @@ export default function JobDetailPage() {
                                         </Button>
                                       </div>
                                     </div>
+                                  ) : !supplier ? (
+                                    <p className="text-sm text-red-600">
+                                      Supplier record not found. Use Edit to recreate {q.supplierName} or Remove if it is not required for this job.
+                                    </p>
                                   ) : (
                                     <div className="space-y-3">
                                       <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
@@ -1187,7 +1430,7 @@ export default function JobDetailPage() {
               <div className="flex gap-2 pt-2">
                 <Button
                   onClick={handleSaveTrades}
-                  disabled={tradeSaving || selectedTrades.length === 0}
+                  disabled={tradeSaving || (totalTrades === 0 && selectedTrades.length === 0)}
                   className="flex-1 min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                 >
                   {tradeSaving ? (
