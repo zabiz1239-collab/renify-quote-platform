@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { v4 as uuidv4 } from "uuid";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -408,6 +409,7 @@ export default function JobDetailPage() {
     setSavingSupplierKey(key);
     try {
       const existingTradeRegions = existing?.tradeRegions || {};
+      const savedSupplierId = existing ? supplierId : uuidv4();
       const updatedSupplier: Supplier = existing
         ? {
             ...existing,
@@ -430,7 +432,7 @@ export default function JobDetailPage() {
               : { ...existingTradeRegions, [tradeCode]: [job.region] },
           }
         : {
-            id: supplierId,
+            id: savedSupplierId,
             company,
             contact: supplierEditForm.contact.trim(),
             email: supplierEditForm.email.trim(),
@@ -448,8 +450,8 @@ export default function JobDetailPage() {
 
       await saveSupplier(updatedSupplier);
       setSuppliers((prev) => {
-        const next = prev.some((s) => s.id === supplierId)
-          ? prev.map((s) => (s.id === supplierId ? updatedSupplier : s))
+        const next = prev.some((s) => s.id === savedSupplierId)
+          ? prev.map((s) => (s.id === savedSupplierId ? updatedSupplier : s))
           : [...prev, updatedSupplier];
         return next.sort((a, b) => a.company.localeCompare(b.company));
       });
@@ -461,7 +463,11 @@ export default function JobDetailPage() {
             ...trade,
             quotes: (trade.quotes || []).map((quote) =>
               quote.supplierId === supplierId
-                ? { ...quote, supplierName: updatedSupplier.company }
+                ? {
+                    ...quote,
+                    supplierId: savedSupplierId,
+                    supplierName: updatedSupplier.company,
+                  }
                 : quote
             ),
           })),
@@ -475,7 +481,7 @@ export default function JobDetailPage() {
       toast.success("Supplier updated");
     } catch (err) {
       console.error("Failed to update supplier:", err);
-      toast.error("Failed to update supplier");
+      toast.error(err instanceof Error ? err.message : "Failed to update supplier");
     } finally {
       setSavingSupplierKey(null);
     }
