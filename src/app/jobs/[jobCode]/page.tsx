@@ -8,6 +8,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -25,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown } from "lucide-react";
-import { getJob, getEstimators, getSuppliers, getSettings, saveJob } from "@/lib/supabase";
+import { getJob, getEstimators, getSuppliers, getSettings, saveJob, saveSupplier } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -50,6 +51,28 @@ const QUOTE_STATUS_ICON: Record<string, React.ReactNode> = {
   declined: <XCircle className="w-4 h-4 text-red-500" />,
 };
 
+type SupplierEditForm = {
+  company: string;
+  contact: string;
+  email: string;
+  cc: string;
+  phone: string;
+  abn: string;
+  website: string;
+  notes: string;
+};
+
+const EMPTY_SUPPLIER_EDIT_FORM: SupplierEditForm = {
+  company: "",
+  contact: "",
+  email: "",
+  cc: "",
+  phone: "",
+  abn: "",
+  website: "",
+  notes: "",
+};
+
 export default function JobDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -63,6 +86,10 @@ export default function JobDetailPage() {
   const [regionOptions, setRegionOptions] = useState<string[]>(DEFAULT_REGIONS);
   const [loading, setLoading] = useState(true);
   const [uploadingZone, setUploadingZone] = useState<string | null>(null);
+  const [expandedSupplierKey, setExpandedSupplierKey] = useState<string | null>(null);
+  const [editingSupplierKey, setEditingSupplierKey] = useState<string | null>(null);
+  const [supplierEditForm, setSupplierEditForm] = useState<SupplierEditForm>(EMPTY_SUPPLIER_EDIT_FORM);
+  const [savingSupplierKey, setSavingSupplierKey] = useState<string | null>(null);
 
   // Edit job dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -242,6 +269,83 @@ export default function JobDetailPage() {
       toast.success(`Status updated to ${newStatus}`);
     } catch {
       toast.error("Failed to update status");
+    }
+  }
+
+  function openSupplierEditor(key: string, supplier: Supplier | undefined, fallbackName: string) {
+    setExpandedSupplierKey(key);
+    setEditingSupplierKey(key);
+    setSupplierEditForm({
+      company: supplier?.company || fallbackName,
+      contact: supplier?.contact || "",
+      email: supplier?.email || "",
+      cc: supplier?.cc || "",
+      phone: supplier?.phone || "",
+      abn: supplier?.abn || "",
+      website: supplier?.website || "",
+      notes: supplier?.notes || "",
+    });
+  }
+
+  function cancelSupplierEdit() {
+    setEditingSupplierKey(null);
+    setSupplierEditForm(EMPTY_SUPPLIER_EDIT_FORM);
+  }
+
+  async function handleSupplierSave(key: string, supplierId: string) {
+    if (!job) return;
+    const existing = suppliers.find((s) => s.id === supplierId);
+    if (!existing) {
+      toast.error("Supplier record not found");
+      return;
+    }
+    const company = supplierEditForm.company.trim();
+    if (!company) {
+      toast.error("Supplier company is required");
+      return;
+    }
+
+    setSavingSupplierKey(key);
+    try {
+      const updatedSupplier: Supplier = {
+        ...existing,
+        company,
+        contact: supplierEditForm.contact.trim(),
+        email: supplierEditForm.email.trim(),
+        cc: supplierEditForm.cc.trim() || undefined,
+        phone: supplierEditForm.phone.trim(),
+        abn: supplierEditForm.abn.trim() || undefined,
+        website: supplierEditForm.website.trim() || undefined,
+        notes: supplierEditForm.notes.trim(),
+      };
+
+      await saveSupplier(updatedSupplier);
+      setSuppliers((prev) => prev.map((s) => (s.id === supplierId ? updatedSupplier : s)));
+
+      if (updatedSupplier.company !== existing.company) {
+        const updatedJob: Job = {
+          ...job,
+          trades: (job.trades || []).map((trade) => ({
+            ...trade,
+            quotes: (trade.quotes || []).map((quote) =>
+              quote.supplierId === supplierId
+                ? { ...quote, supplierName: updatedSupplier.company }
+                : quote
+            ),
+          })),
+          updatedAt: new Date().toISOString(),
+        };
+        await saveJob(updatedJob);
+        setJob(updatedJob);
+      }
+
+      cancelSupplierEdit();
+      toast.success("Supplier updated");
+    } catch (err) {
+      console.error("Failed to update supplier:", err);
+      toast.error("Failed to update supplier");
+    } finally {
+      setSavingSupplierKey(null);
     }
   }
 
@@ -675,27 +779,214 @@ export default function JobDetailPage() {
                     {/* Show requested quotes with clear Received button */}
                     {requestedQuotes.length > 0 && (
                       <div className="pl-6 pb-3 space-y-2">
-                        {requestedQuotes.map((q, qi) => (
-                          <div key={qi} className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-100">
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                              <div>
-                                <p className="text-sm font-medium">{q.supplierName}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Requested {q.requestedDate ? new Date(q.requestedDate).toLocaleDateString("en-AU") : ""}
-                                </p>
+                        {requestedQuotes.map((q, qi) => {
+                          const supplier = suppliers.find((s) => s.id === q.supplierId);
+                          const supplierKey = `${trade.code}:${q.supplierId}:${q.version}:${q.requestedDate || qi}`;
+                          const supplierName = supplier?.company || q.supplierName;
+                          const isExpanded = expandedSupplierKey === supplierKey;
+                          const isEditing = editingSupplierKey === supplierKey;
+                          const isSaving = savingSupplierKey === supplierKey;
+
+                          return (
+                            <div key={supplierKey} className="bg-blue-50 rounded-lg border border-blue-100">
+                              <div className="flex flex-col gap-2 p-2 sm:flex-row sm:items-center sm:justify-between">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedSupplierKey(isExpanded ? null : supplierKey);
+                                    if (isExpanded && isEditing) cancelSupplierEdit();
+                                  }}
+                                  className="flex min-h-[44px] flex-1 items-center gap-2 text-left"
+                                >
+                                  <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium truncate">{supplierName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Requested {q.requestedDate ? new Date(q.requestedDate).toLocaleDateString("en-AU") : ""}
+                                      {supplier?.email ? ` - ${supplier.email}` : " - no email saved"}
+                                    </p>
+                                  </div>
+                                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                                <div className="flex items-center gap-2 sm:flex-shrink-0">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={!supplier || isSaving}
+                                    className="min-h-[44px] px-3 text-xs"
+                                    onClick={() => openSupplierEditor(supplierKey, supplier, q.supplierName)}
+                                  >
+                                    <Pencil className="w-3 h-3 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={isSaving}
+                                    className="min-h-[44px] px-4 bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                                    onClick={() => quickReceive(trade.code, q.supplierId, supplierName)}
+                                  >
+                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    Received
+                                  </Button>
+                                </div>
                               </div>
+
+                              {isExpanded && (
+                                <div className="mx-2 mb-2 border-t border-blue-100 pt-3">
+                                  {!supplier ? (
+                                    <p className="text-sm text-red-600">
+                                      Supplier record not found. The quote request still references {q.supplierName}.
+                                    </p>
+                                  ) : isEditing ? (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <div className="space-y-1">
+                                          <Label>Company *</Label>
+                                          <Input
+                                            value={supplierEditForm.company}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, company: e.target.value }))}
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>Email</Label>
+                                          <Input
+                                            type="email"
+                                            value={supplierEditForm.email}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, email: e.target.value }))}
+                                            placeholder="quotes@supplier.com.au"
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>CC Email</Label>
+                                          <Input
+                                            type="email"
+                                            value={supplierEditForm.cc}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, cc: e.target.value }))}
+                                            placeholder="manager@supplier.com.au"
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>Contact</Label>
+                                          <Input
+                                            value={supplierEditForm.contact}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, contact: e.target.value }))}
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>Phone</Label>
+                                          <Input
+                                            value={supplierEditForm.phone}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, phone: e.target.value }))}
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>Website</Label>
+                                          <Input
+                                            type="url"
+                                            value={supplierEditForm.website}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, website: e.target.value }))}
+                                            placeholder="https://supplier.com.au"
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <Label>ABN</Label>
+                                          <Input
+                                            value={supplierEditForm.abn}
+                                            onChange={(e) => setSupplierEditForm((f) => ({ ...f, abn: e.target.value }))}
+                                            className="min-h-[44px] bg-white"
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <Label>Notes</Label>
+                                        <Textarea
+                                          value={supplierEditForm.notes}
+                                          onChange={(e) => setSupplierEditForm((f) => ({ ...f, notes: e.target.value }))}
+                                          rows={2}
+                                          className="bg-white"
+                                        />
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          type="button"
+                                          disabled={isSaving || !supplierEditForm.company.trim()}
+                                          onClick={() => handleSupplierSave(supplierKey, q.supplierId)}
+                                          className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
+                                        >
+                                          {isSaving ? (
+                                            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                                          ) : (
+                                            "Save Supplier"
+                                          )}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          disabled={isSaving}
+                                          onClick={cancelSupplierEdit}
+                                          className="min-h-[44px]"
+                                        >
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Contact</p>
+                                          <p className="font-medium">{supplier.contact || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Email</p>
+                                          <p className="font-medium break-all">{supplier.email || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">CC Email</p>
+                                          <p className="font-medium break-all">{supplier.cc || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Phone</p>
+                                          <p className="font-medium">{supplier.phone || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Website</p>
+                                          <p className="font-medium break-all">{supplier.website || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">ABN</p>
+                                          <p className="font-medium">{supplier.abn || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Regions</p>
+                                          <p className="font-medium">{supplier.regions.join(", ") || "Not set"}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Status</p>
+                                          <p className="font-medium capitalize">{supplier.status} - {supplier.rating}/5</p>
+                                        </div>
+                                      </div>
+                                      {supplier.notes && (
+                                        <div className="text-sm">
+                                          <p className="text-xs text-muted-foreground">Notes</p>
+                                          <p className="whitespace-pre-wrap">{supplier.notes}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <Button
-                              size="sm"
-                              className="min-h-[44px] px-4 bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
-                              onClick={() => quickReceive(trade.code, q.supplierId, q.supplierName)}
-                            >
-                              <CheckCircle className="w-4 h-4 mr-1" />
-                              Received
-                            </Button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
