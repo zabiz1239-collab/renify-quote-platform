@@ -3,6 +3,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
 import { getEstimators, getTemplates, getJob, saveJob, getSuppliers } from "@/lib/supabase";
+import { getSelectedDocumentsForSupplier } from "@/lib/attachments";
+import {
+  downloadAttachmentFiles,
+  filesToEmailAttachments,
+  getAttachmentFilesSize,
+  MAX_SMTP_SIZE,
+} from "@/lib/email-attachments";
 import { findTemplate, getDefaultTemplates, getTradeDisplayName, renderTemplate } from "@/lib/templates";
 import type { EmailTemplate } from "@/types";
 
@@ -79,6 +86,28 @@ export async function POST(request: NextRequest) {
   const context = { supplier: safeSupplier, job, estimator, tradeCodes: [tradeCode] };
   const subject = renderTemplate(template.subject, context);
   const htmlBody = renderTemplate(`${template.body}${RESPONSE_DATE_PROMPT}`, context).replace(/\n/g, "<br>");
+  const selectedDocuments = getSelectedDocumentsForSupplier(
+    job.documents || [],
+    supplier,
+    [tradeCode],
+    quote.attachmentKeys
+  );
+  let attachmentFiles = await downloadAttachmentFiles(session.accessToken, job, selectedDocuments);
+
+  const totalSize = getAttachmentFilesSize(attachmentFiles);
+  if (totalSize > MAX_SMTP_SIZE) {
+    console.log(JSON.stringify({
+      evt: "follow_up_attachment_size_warning",
+      jobCode,
+      supplierId,
+      tradeCode,
+      totalBytes: totalSize,
+      files: attachmentFiles.map((file) => file.name),
+      msg: "Exceeds 20MB SMTP limit - sending follow-up without attachments",
+    }));
+    attachmentFiles = [];
+  }
+  const emailAttachments = filesToEmailAttachments(attachmentFiles);
 
   try {
     await sendEmail({
@@ -86,6 +115,7 @@ export async function POST(request: NextRequest) {
       cc: supplier.cc ? [supplier.cc] : undefined,
       subject,
       htmlBody,
+      attachments: emailAttachments,
     });
 
     quote.followUpCount = nextFollowUpCount;
@@ -101,6 +131,7 @@ export async function POST(request: NextRequest) {
       followUpCount: quote.followUpCount,
       lastFollowUp: quote.lastFollowUp,
       templateType,
+      attachments: emailAttachments.map((attachment) => attachment.name),
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Follow-up send failed";

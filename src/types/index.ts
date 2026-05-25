@@ -70,6 +70,7 @@ export interface Quote {
   fileHash?: string;
   followUpCount: number;
   lastFollowUp?: string;
+  attachmentKeys?: string[];
   ocrExtracted?: boolean;
   scopeItems?: string[];
 }

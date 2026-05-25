@@ -293,6 +293,13 @@ export default function SendQuotesPage() {
     return attachmentSelections[supplier.id] ?? getDefaultDocumentKeys(supplier);
   }
 
+  function getSelectedDocumentNames(supplier: Supplier): string[] {
+    const selectedKeys = new Set(getSelectedDocumentKeys(supplier));
+    return documentOptions
+      .filter(({ key }) => selectedKeys.has(key))
+      .map(({ doc }) => doc.name);
+  }
+
   function setSupplierDocumentKeys(supplierId: string, documentKeys: string[]) {
     setAttachmentSelections((prev) => ({
       ...prev,
@@ -936,11 +943,11 @@ export default function SendQuotesPage() {
         {/* Step 4: Attachments */}
         {selectedEmailCount > 0 && (
           <Card>
-            <CardHeader><CardTitle>4. Attachments</CardTitle></CardHeader>
+            <CardHeader><CardTitle>4. Plans & Supporting Documents</CardTitle></CardHeader>
             <CardContent>
               {documentOptions.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  No uploaded job documents.
+                  No uploaded plans or supporting documents.
                 </p>
               ) : (
                 <Tabs
@@ -1096,15 +1103,20 @@ export default function SendQuotesPage() {
               <div className="border rounded-lg divide-y max-h-[300px] overflow-y-auto">
                 {currentSelections.map((sel) => {
                   const sup = suppliers.find((s) => s.id === sel.supplierId);
-                  const attachmentCount = sup ? getSelectedDocumentKeys(sup).length : 0;
+                  const attachmentNames = sup ? getSelectedDocumentNames(sup) : [];
                   return (
                     <div key={sel.supplierId} className="flex items-center gap-3 p-3">
                       <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{sup?.company || "Unknown"}</p>
                         <p className="text-xs text-muted-foreground">
-                          {sup?.email || "No email"} - {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""}
+                          {sup?.email || "No email"} - {attachmentNames.length} attachment{attachmentNames.length !== 1 ? "s" : ""}
                         </p>
+                        {attachmentNames.length > 0 && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            Files: {attachmentNames.join(", ")}
+                          </p>
+                        )}
                         <p className="text-xs text-muted-foreground">
                           Cost centres: {sel.tradeCodes.join(", ")}
                         </p>
