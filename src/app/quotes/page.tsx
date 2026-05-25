@@ -32,7 +32,7 @@ import {
   getAttachmentPreferenceCategories,
   getJobDocumentKey,
 } from "@/lib/attachments";
-import { supplierMatchesRegion } from "@/lib/regions";
+import { getSupplierRegionsForTrade, supplierMatchesTradeRegion } from "@/lib/regions";
 import type { Job, Supplier, EmailTemplate } from "@/types";
 import { toast } from "sonner";
 
@@ -115,7 +115,7 @@ export default function SendQuotesPage() {
 
   const getSuppliersForTradeCode = useCallback((tradeCode: string) => {
     return suppliers.filter(
-      (s) => s.trades.includes(tradeCode) && supplierMatchesRegion(s.regions, selectedJob?.region)
+      (s) => s.trades.includes(tradeCode) && supplierMatchesTradeRegion(s, tradeCode, selectedJob?.region)
     );
   }, [suppliers, selectedJob?.region]);
 
@@ -773,7 +773,8 @@ export default function SendQuotesPage() {
                           <p className="text-xs text-muted-foreground truncate">
                             {sup.email || "No email"}
                             {sup.phone && ` · ${sup.phone}`}
-                            {sup.regions.length > 0 && ` · ${sup.regions.join(", ")}`}
+                            {getSupplierRegionsForTrade(sup, selectedTradeCode).length > 0 &&
+                              ` · ${getSupplierRegionsForTrade(sup, selectedTradeCode).join(", ")}`}
                           </p>
                         </div>
                         {existingQuote ? (
@@ -906,7 +907,8 @@ export default function SendQuotesPage() {
                                     <p className="text-xs text-muted-foreground truncate">
                                       {supplier.email || "No email"}
                                       {supplier.phone && ` - ${supplier.phone}`}
-                                      {supplier.regions.length > 0 && ` - ${supplier.regions.join(", ")}`}
+                                      {getSupplierRegionsForTrade(supplier, trade.code).length > 0 &&
+                                        ` - ${getSupplierRegionsForTrade(supplier, trade.code).join(", ")}`}
                                     </p>
                                   </div>
                                   {existingQuote ? (

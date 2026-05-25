@@ -19,6 +19,7 @@ export type JobDocumentCategory =
   | "other";
 
 export type AttachmentPreferences = Record<string, JobDocumentCategory[]>;
+export type TradeRegions = Record<string, string[]>;
 
 export interface Supplier {
   id: string;
@@ -36,6 +37,7 @@ export interface Supplier {
   notes: string;
   lastContacted?: string;
   attachmentPreferences?: AttachmentPreferences;
+  tradeRegions?: TradeRegions;
   // Cross-job stats (calculated at read time, not stored)
   totalRequests?: number;
   totalResponses?: number;

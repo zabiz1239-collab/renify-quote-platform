@@ -120,7 +120,7 @@ export default function NewJobPage() {
           ...prev,
           jobCode: jobCode || prev.jobCode,
           address: landAddress || prev.address,
-          region: landAddress.toLowerCase().includes("bonnie brook") || landAddress.toLowerCase().includes("melton") || landAddress.toLowerCase().includes("taylors") ? "Western" : prev.region,
+          region: landAddress.toLowerCase().includes("bonnie brook") || landAddress.toLowerCase().includes("melton") || landAddress.toLowerCase().includes("taylors") ? "West" : prev.region,
           buildType: prev.buildType || "Renovation",
           storeys: prev.storeys || "Single",
         }));

@@ -40,8 +40,14 @@ import {
   DEFAULT_ATTACHMENT_CATEGORIES,
   pruneAttachmentPreferences,
 } from "@/lib/attachments";
-import { DEFAULT_REGIONS, mergeRegions, supplierMatchesRegion } from "@/lib/regions";
-import type { AttachmentPreferences, JobDocumentCategory, Supplier, SupplierCategory } from "@/types";
+import {
+  DEFAULT_REGIONS,
+  MELBOURNE_REGION_OPTIONS,
+  mergeRegions,
+  pruneTradeRegions,
+  supplierMatchesRegion,
+} from "@/lib/regions";
+import type { AttachmentPreferences, JobDocumentCategory, Supplier, SupplierCategory, TradeRegions } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 import Papa from "papaparse";
 import { toast } from "sonner";
@@ -96,6 +102,7 @@ const EMPTY_FORM = {
   website: "",
   trades: [] as string[],
   regions: [] as string[],
+  tradeRegions: {} as TradeRegions,
   status: "unverified" as Supplier["status"],
   rating: 3,
   notes: "",
@@ -210,6 +217,7 @@ export default function SuppliersPage() {
       website: sup.website || "",
       trades: [...sup.trades],
       regions: [...sup.regions],
+      tradeRegions: sup.tradeRegions || {},
       status: sup.status,
       rating: sup.rating,
       notes: sup.notes,
@@ -235,6 +243,7 @@ export default function SuppliersPage() {
       const formForSave = {
         ...form,
         attachmentPreferences,
+        tradeRegions: pruneTradeRegions(form.tradeRegions, form.trades),
       };
       const sup: Supplier = editingId
         ? { ...suppliers.find((s) => s.id === editingId)!, ...formForSave, abn: form.abn || undefined, website: form.website || undefined, cc: form.cc || undefined }
@@ -274,8 +283,39 @@ export default function SuppliersPage() {
         ...prev,
         trades,
         attachmentPreferences: pruneAttachmentPreferences(prev.attachmentPreferences, trades),
+        tradeRegions: pruneTradeRegions(prev.tradeRegions, trades),
       };
     });
+  }
+
+  function getFormTradeRegions(tradeCode: string): string[] {
+    return form.tradeRegions[tradeCode] || [];
+  }
+
+  function setFormTradeRegions(tradeCode: string, regions: string[]) {
+    setForm((prev) => ({
+      ...prev,
+      tradeRegions: {
+        ...prev.tradeRegions,
+        [tradeCode]: regions,
+      },
+    }));
+  }
+
+  function clearFormTradeRegions(tradeCode: string) {
+    setForm((prev) => {
+      const { [tradeCode]: _removed, ...tradeRegions } = prev.tradeRegions;
+      void _removed;
+      return { ...prev, tradeRegions };
+    });
+  }
+
+  function toggleFormTradeRegion(tradeCode: string, region: string) {
+    const current = getFormTradeRegions(tradeCode);
+    const next = current.includes(region)
+      ? current.filter((item) => item !== region)
+      : [...current, region];
+    setFormTradeRegions(tradeCode, next);
   }
 
   function getFormAttachmentCategories(tradeCode: string): JobDocumentCategory[] {
@@ -1232,12 +1272,13 @@ export default function SuppliersPage() {
                               ...p,
                               trades,
                               attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                              tradeRegions: pruneTradeRegions(p.tradeRegions, trades),
                             };
                           })}>
                           All
                         </Button>
                         <Button type="button" variant="ghost" size="sm" className="text-xs h-7 px-2"
-                          onClick={() => setForm((p) => ({ ...p, trades: [], attachmentPreferences: {} }))}>
+                          onClick={() => setForm((p) => ({ ...p, trades: [], attachmentPreferences: {}, tradeRegions: {} }))}>
                           None
                         </Button>
                       </div>
@@ -1295,6 +1336,7 @@ export default function SuppliersPage() {
                                           ...p,
                                           trades,
                                           attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                                          tradeRegions: pruneTradeRegions(p.tradeRegions, trades),
                                         };
                                       });
                                     } else {
@@ -1304,6 +1346,7 @@ export default function SuppliersPage() {
                                           ...p,
                                           trades,
                                           attachmentPreferences: pruneAttachmentPreferences(p.attachmentPreferences, trades),
+                                          tradeRegions: pruneTradeRegions(p.tradeRegions, trades),
                                         };
                                       });
                                     }
@@ -1369,6 +1412,7 @@ export default function SuppliersPage() {
                       <div className="max-h-72 overflow-y-auto border rounded-lg bg-background divide-y">
                         {form.trades.map((tradeCode) => {
                           const selectedCategories = getFormAttachmentCategories(tradeCode);
+                          const selectedTradeRegions = getFormTradeRegions(tradeCode);
                           return (
                             <div key={tradeCode} className="p-3 space-y-3">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1428,6 +1472,58 @@ export default function SuppliersPage() {
                                     {category.label}
                                   </label>
                                 ))}
+                              </div>
+                              <div className="space-y-2 border-t pt-3">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div>
+                                    <p className="text-sm font-medium">Melbourne areas for this trade</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {selectedTradeRegions.length > 0
+                                        ? `${selectedTradeRegions.length} selected for this trade`
+                                        : "Uses the supplier's general states / regions"}
+                                    </p>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-7 px-2"
+                                      onClick={() => clearFormTradeRegions(tradeCode)}
+                                    >
+                                      Supplier Areas
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-7 px-2"
+                                      onClick={() => setFormTradeRegions(tradeCode, MELBOURNE_REGION_OPTIONS)}
+                                    >
+                                      All Melbourne
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {MELBOURNE_REGION_OPTIONS.map((region) => (
+                                    <label
+                                      key={`${tradeCode}-${region}`}
+                                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer min-h-[40px] text-sm ${
+                                        selectedTradeRegions.includes(region)
+                                          ? "bg-[#2D5E3A]/10 border-[#2D5E3A]/40"
+                                          : "hover:bg-muted"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedTradeRegions.includes(region)}
+                                        onChange={() => toggleFormTradeRegion(tradeCode, region)}
+                                        className="w-4 h-4"
+                                      />
+                                      {region}
+                                    </label>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           );

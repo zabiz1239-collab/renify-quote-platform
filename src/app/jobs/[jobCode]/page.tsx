@@ -32,7 +32,12 @@ import { supabase } from "@/lib/supabase";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { toast } from "sonner";
 import type { Job, Estimator, Supplier } from "@/types";
-import { DEFAULT_REGIONS, mergeRegions, supplierMatchesRegion } from "@/lib/regions";
+import {
+  DEFAULT_REGIONS,
+  getSupplierRegionsForTrade,
+  mergeRegions,
+  supplierMatchesTradeRegion,
+} from "@/lib/regions";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-blue-100 text-blue-800",
@@ -73,9 +78,10 @@ const EMPTY_SUPPLIER_EDIT_FORM: SupplierEditForm = {
   notes: "",
 };
 
-function formatSupplierAreas(supplier: Supplier | undefined): string {
-  if (!supplier?.regions?.length) return "Areas not set";
-  return supplier.regions.join(", ");
+function formatSupplierAreas(supplier: Supplier | undefined, tradeCode?: string): string {
+  const regions = getSupplierRegionsForTrade(supplier, tradeCode);
+  if (regions.length === 0) return "Areas not set";
+  return regions.join(", ");
 }
 
 export default function JobDetailPage() {
@@ -426,10 +432,10 @@ export default function JobDetailPage() {
 
   const receiveTradeSuppliers = suppliers.filter((s) => s.trades.includes(receiveTradeCode));
   const receiveMatchingSuppliers = receiveTradeSuppliers.filter((s) =>
-    supplierMatchesRegion(s.regions, job?.region)
+    supplierMatchesTradeRegion(s, receiveTradeCode, job?.region)
   );
   const receiveOtherRegionSuppliers = receiveTradeSuppliers.filter(
-    (s) => !supplierMatchesRegion(s.regions, job?.region)
+    (s) => !supplierMatchesTradeRegion(s, receiveTradeCode, job?.region)
   );
 
   async function handleOcr() {
@@ -852,7 +858,7 @@ export default function JobDetailPage() {
                                       {supplier?.email ? ` - ${supplier.email}` : " - no email saved"}
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                      Areas: {formatSupplierAreas(supplier)}
+                                      Areas: {formatSupplierAreas(supplier, trade.code)}
                                       {q.lastFollowUp ? ` - chased ${new Date(q.lastFollowUp).toLocaleDateString("en-AU")}` : ""}
                                     </p>
                                   </div>
@@ -1032,7 +1038,7 @@ export default function JobDetailPage() {
                                         </div>
                                         <div>
                                           <p className="text-xs text-muted-foreground">Areas Covered</p>
-                                          <p className="font-medium">{formatSupplierAreas(supplier)}</p>
+                                          <p className="font-medium">{formatSupplierAreas(supplier, trade.code)}</p>
                                         </div>
                                         <div>
                                           <p className="text-xs text-muted-foreground">Status</p>

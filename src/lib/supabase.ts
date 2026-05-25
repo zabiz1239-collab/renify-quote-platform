@@ -1,7 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Job, Supplier, Estimator, EmailTemplate, AppSettings } from "@/types";
 import { normalizeAttachmentPreferences } from "@/lib/attachments";
-import { DEFAULT_REGIONS } from "@/lib/regions";
+import { DEFAULT_REGIONS, normalizeTradeRegions } from "@/lib/regions";
+
+const LEGACY_TRADE_REGIONS_KEY = "__trade_regions";
 
 // Lazy client construction so `next build` "Collecting page data" can import
 // route modules without requiring runtime env vars to be present at build time.
@@ -138,36 +140,78 @@ export async function getSuppliers(): Promise<Supplier[]> {
     from += PAGE_SIZE;
   }
 
-  return allRows.map((r) => ({
-    id: r.id as string,
-    company: r.company as string,
-    contact: r.contact as string,
-    email: r.email as string,
-    phone: r.phone as string,
-    abn: (r.abn as string) || undefined,
-    website: (r.website as string) || undefined,
-    cc: (r.cc as string) || undefined,
-    trades: r.trades as string[],
-    regions: r.regions as string[],
-    status: r.status as Supplier["status"],
-    rating: r.rating as number,
-    notes: r.notes as string,
-    lastContacted: (r.last_contacted as string) || undefined,
-    attachmentPreferences: normalizeAttachmentPreferences(r.attachment_preferences),
-  }));
+  return allRows.map((r) => {
+    const attachmentPreferencesRaw = r.attachment_preferences as Record<string, unknown> | null | undefined;
+    return {
+      id: r.id as string,
+      company: r.company as string,
+      contact: r.contact as string,
+      email: r.email as string,
+      phone: r.phone as string,
+      abn: (r.abn as string) || undefined,
+      website: (r.website as string) || undefined,
+      cc: (r.cc as string) || undefined,
+      trades: r.trades as string[],
+      regions: r.regions as string[],
+      status: r.status as Supplier["status"],
+      rating: r.rating as number,
+      notes: r.notes as string,
+      lastContacted: (r.last_contacted as string) || undefined,
+      attachmentPreferences: normalizeAttachmentPreferences(attachmentPreferencesRaw),
+      tradeRegions: normalizeTradeRegions(r.trade_regions || attachmentPreferencesRaw?.[LEGACY_TRADE_REGIONS_KEY]),
+    };
+  });
 }
 
-function isMissingAttachmentPreferencesColumn(error: { message?: string } | null): boolean {
+function isMissingColumn(error: { message?: string } | null, column: string): boolean {
   const message = error?.message || "";
-  return message.includes("attachment_preferences") && message.includes("does not exist");
+  return message.includes(column) && message.includes("does not exist");
 }
 
-function omitAttachmentPreferencesColumn<T extends { attachment_preferences?: unknown }>(
-  row: T
-): Omit<T, "attachment_preferences"> {
-  const { attachment_preferences, ...fallbackRow } = row;
-  void attachment_preferences;
-  return fallbackRow;
+function getPersistedAttachmentPreferences(sup: Supplier): Record<string, unknown> {
+  return {
+    ...(sup.attachmentPreferences || {}),
+    [LEGACY_TRADE_REGIONS_KEY]: sup.tradeRegions || {},
+  };
+}
+
+async function upsertSupplierRows(
+  rows: Record<string, unknown> | Record<string, unknown>[]
+): Promise<void> {
+  let rowsToSave = rows;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await supabase.from("qp_suppliers").upsert(rowsToSave as never);
+    if (!error) return;
+    lastError = error;
+
+    if (isMissingColumn(error, "trade_regions")) {
+      const omitTradeRegions = (row: Record<string, unknown>) => {
+        const { trade_regions, ...fallbackRow } = row;
+        void trade_regions;
+        return fallbackRow;
+      };
+      rowsToSave = Array.isArray(rowsToSave)
+        ? rowsToSave.map(omitTradeRegions)
+        : omitTradeRegions(rowsToSave);
+      continue;
+    }
+
+    if (isMissingColumn(error, "attachment_preferences")) {
+      const omitAttachmentPreferences = (row: Record<string, unknown>) => {
+        const { attachment_preferences, ...fallbackRow } = row;
+        void attachment_preferences;
+        return fallbackRow;
+      };
+      rowsToSave = Array.isArray(rowsToSave)
+        ? rowsToSave.map(omitAttachmentPreferences)
+        : omitAttachmentPreferences(rowsToSave);
+      continue;
+    }
+
+    throw error;
+  }
+  throw lastError;
 }
 
 export async function saveSupplier(sup: Supplier): Promise<void> {
@@ -186,16 +230,10 @@ export async function saveSupplier(sup: Supplier): Promise<void> {
     rating: sup.rating,
     notes: sup.notes,
     last_contacted: sup.lastContacted || null,
-    attachment_preferences: sup.attachmentPreferences || {},
+    attachment_preferences: getPersistedAttachmentPreferences(sup),
+    trade_regions: sup.tradeRegions || {},
   };
-  const { error } = await supabase.from("qp_suppliers").upsert(row);
-  if (error && isMissingAttachmentPreferencesColumn(error)) {
-    const fallbackRow = omitAttachmentPreferencesColumn(row);
-    const retry = await supabase.from("qp_suppliers").upsert(fallbackRow);
-    if (retry.error) throw retry.error;
-    return;
-  }
-  if (error) throw error;
+  await upsertSupplierRows(row);
 }
 
 export async function saveSuppliersBulk(suppliers: Supplier[]): Promise<void> {
@@ -214,16 +252,10 @@ export async function saveSuppliersBulk(suppliers: Supplier[]): Promise<void> {
     rating: sup.rating,
     notes: sup.notes,
     last_contacted: sup.lastContacted || null,
-    attachment_preferences: sup.attachmentPreferences || {},
+    attachment_preferences: getPersistedAttachmentPreferences(sup),
+    trade_regions: sup.tradeRegions || {},
   }));
-  const { error } = await supabase.from("qp_suppliers").upsert(rows);
-  if (error && isMissingAttachmentPreferencesColumn(error)) {
-    const fallbackRows = rows.map(omitAttachmentPreferencesColumn);
-    const retry = await supabase.from("qp_suppliers").upsert(fallbackRows);
-    if (retry.error) throw retry.error;
-    return;
-  }
-  if (error) throw error;
+  await upsertSupplierRows(rows);
 }
 
 export async function updateSupplierEmail(id: string, email: string): Promise<void> {
