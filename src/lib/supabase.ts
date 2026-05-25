@@ -165,7 +165,12 @@ export async function getSuppliers(): Promise<Supplier[]> {
 
 function isMissingColumn(error: { message?: string } | null, column: string): boolean {
   const message = error?.message || "";
-  return message.includes(column) && message.includes("does not exist");
+  return (
+    message.includes(column) &&
+    (message.includes("does not exist") ||
+      message.includes("schema cache") ||
+      message.includes("Could not find"))
+  );
 }
 
 function getPersistedAttachmentPreferences(sup: Supplier): Record<string, unknown> {

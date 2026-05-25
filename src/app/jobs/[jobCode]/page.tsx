@@ -63,6 +63,7 @@ type SupplierEditForm = {
   email: string;
   cc: string;
   phone: string;
+  region: string;
   abn: string;
   website: string;
   notes: string;
@@ -74,6 +75,7 @@ const EMPTY_SUPPLIER_EDIT_FORM: SupplierEditForm = {
   email: "",
   cc: "",
   phone: "",
+  region: "",
   abn: "",
   website: "",
   notes: "",
@@ -377,7 +379,13 @@ export default function JobDetailPage() {
     }
   }
 
-  function openSupplierEditor(key: string, supplier: Supplier | undefined, fallbackName: string) {
+  function openSupplierEditor(
+    key: string,
+    supplier: Supplier | undefined,
+    fallbackName: string,
+    tradeCode?: string
+  ) {
+    const supplierRegions = getSupplierRegionsForTrade(supplier, tradeCode);
     setExpandedSupplierKey(key);
     setEditingSupplierKey(key);
     setSupplierEditForm({
@@ -386,6 +394,7 @@ export default function JobDetailPage() {
       email: supplier?.email || "",
       cc: supplier?.cc || "",
       phone: supplier?.phone || "",
+      region: supplierRegions[0] || job?.region || supplier?.regions?.[0] || "",
       abn: supplier?.abn || "",
       website: supplier?.website || "",
       notes: supplier?.notes || "",
@@ -405,6 +414,11 @@ export default function JobDetailPage() {
       toast.error("Supplier company is required");
       return;
     }
+    const selectedRegion = supplierEditForm.region.trim();
+    if (!selectedRegion) {
+      toast.error("Supplier location is required");
+      return;
+    }
 
     setSavingSupplierKey(key);
     try {
@@ -422,14 +436,13 @@ export default function JobDetailPage() {
             website: supplierEditForm.website.trim() || undefined,
             notes: supplierEditForm.notes.trim(),
             trades: Array.from(new Set([...(existing.trades || []), tradeCode])),
-            regions: (existing.regions || []).length > 0
-              ? existing.regions
-              : job.region
-                ? [job.region]
-                : [],
-            tradeRegions: existingTradeRegions[tradeCode]?.length || !job.region
-              ? existingTradeRegions
-              : { ...existingTradeRegions, [tradeCode]: [job.region] },
+            regions: Array.from(new Set([...(existing.regions || []), selectedRegion])),
+            tradeRegions: {
+              ...existingTradeRegions,
+              [tradeCode]: Array.from(
+                new Set([...(existingTradeRegions[tradeCode] || []), selectedRegion])
+              ),
+            },
           }
         : {
             id: savedSupplierId,
@@ -442,10 +455,10 @@ export default function JobDetailPage() {
             website: supplierEditForm.website.trim() || undefined,
             notes: supplierEditForm.notes.trim(),
             trades: [tradeCode],
-            regions: job.region ? [job.region] : [],
+            regions: [selectedRegion],
             status: "unverified",
             rating: 3,
-            tradeRegions: job.region ? { [tradeCode]: [job.region] } : {},
+            tradeRegions: { [tradeCode]: [selectedRegion] },
           };
 
       await saveSupplier(updatedSupplier);
@@ -523,7 +536,7 @@ export default function JobDetailPage() {
     }
     if (!supplier.email?.trim()) {
       toast.error("Add an email address before resending");
-      openSupplierEditor(key, supplier, supplier.company);
+      openSupplierEditor(key, supplier, supplier.company, tradeCode);
       return;
     }
 
@@ -1104,7 +1117,7 @@ export default function JobDetailPage() {
                                     size="sm"
                                     disabled={isSaving}
                                     className="min-h-[44px] px-3 text-xs"
-                                    onClick={() => openSupplierEditor(supplierKey, supplier, q.supplierName)}
+                                    onClick={() => openSupplierEditor(supplierKey, supplier, q.supplierName, trade.code)}
                                   >
                                     <Pencil className="w-3 h-3 mr-1" />
                                     Edit
@@ -1203,6 +1216,27 @@ export default function JobDetailPage() {
                                           />
                                         </div>
                                         <div className="space-y-1">
+                                          <Label>Location / Region *</Label>
+                                          <Select
+                                            value={supplierEditForm.region}
+                                            onValueChange={(value) => setSupplierEditForm((f) => ({ ...f, region: value }))}
+                                          >
+                                            <SelectTrigger className="min-h-[44px] bg-white">
+                                              <SelectValue placeholder="Select region..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {mergeRegions(
+                                                [supplierEditForm.region, job.region, ...regionOptions]
+                                                  .filter((region): region is string => Boolean(region))
+                                              ).map((region) => (
+                                                <SelectItem key={region} value={region}>
+                                                  {region}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div className="space-y-1">
                                           <Label>Website</Label>
                                           <Input
                                             type="url"
@@ -1233,7 +1267,7 @@ export default function JobDetailPage() {
                                       <div className="flex gap-2">
                                         <Button
                                           type="button"
-                                          disabled={isSaving || !supplierEditForm.company.trim()}
+                                          disabled={isSaving || !supplierEditForm.company.trim() || !supplierEditForm.region.trim()}
                                           onClick={() => handleSupplierSave(supplierKey, q.supplierId, trade.code)}
                                           className="min-h-[44px] bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                                         >
