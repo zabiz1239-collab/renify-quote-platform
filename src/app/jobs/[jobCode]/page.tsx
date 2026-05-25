@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown } from "lucide-react";
+import { ChevronRight, Trash2, FileText, CheckCircle, Clock, XCircle, Upload, Loader2, FileInput, Sparkles, Pencil, Plus, ChevronDown, Send } from "lucide-react";
 import { getJob, getEstimators, getSuppliers, getSettings, saveJob, saveSupplier } from "@/lib/supabase";
 import { TRADES } from "@/data/trades";
 import { supabase } from "@/lib/supabase";
@@ -73,6 +73,11 @@ const EMPTY_SUPPLIER_EDIT_FORM: SupplierEditForm = {
   notes: "",
 };
 
+function formatSupplierAreas(supplier: Supplier | undefined): string {
+  if (!supplier?.regions?.length) return "Areas not set";
+  return supplier.regions.join(", ");
+}
+
 export default function JobDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -90,6 +95,7 @@ export default function JobDetailPage() {
   const [editingSupplierKey, setEditingSupplierKey] = useState<string | null>(null);
   const [supplierEditForm, setSupplierEditForm] = useState<SupplierEditForm>(EMPTY_SUPPLIER_EDIT_FORM);
   const [savingSupplierKey, setSavingSupplierKey] = useState<string | null>(null);
+  const [resendingSupplierKey, setResendingSupplierKey] = useState<string | null>(null);
 
   // Edit job dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -346,6 +352,42 @@ export default function JobDetailPage() {
       toast.error("Failed to update supplier");
     } finally {
       setSavingSupplierKey(null);
+    }
+  }
+
+  async function handleResendFollowUp(key: string, tradeCode: string, supplierId: string) {
+    if (!job) return;
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    if (!supplier) {
+      toast.error("Supplier record not found");
+      return;
+    }
+    if (!supplier.email?.trim()) {
+      toast.error("Add an email address before resending");
+      openSupplierEditor(key, supplier, supplier.company);
+      return;
+    }
+
+    setResendingSupplierKey(key);
+    try {
+      const res = await fetch("/api/email/follow-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobCode: job.jobCode,
+          supplierId,
+          tradeCode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to resend follow-up");
+
+      toast.success(`Follow-up sent to ${supplier.company}`);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to resend follow-up");
+    } finally {
+      setResendingSupplierKey(null);
     }
   }
 
@@ -750,10 +792,13 @@ export default function JobDetailPage() {
                     <div className="flex items-center justify-between py-2">
                       <div className="flex items-center gap-2">
                         {QUOTE_STATUS_ICON[latestStatus] || QUOTE_STATUS_ICON.not_started}
-                        <span className="text-sm">
-                          <span className="text-muted-foreground">{trade.code}</span>{" "}
-                          {trade.name}
-                        </span>
+                        <div>
+                          <p className="text-sm">
+                            <span className="text-muted-foreground">{trade.code}</span>{" "}
+                            {trade.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Job area: {job.region}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {bestQuote?.priceExGST && (
@@ -786,6 +831,7 @@ export default function JobDetailPage() {
                           const isExpanded = expandedSupplierKey === supplierKey;
                           const isEditing = editingSupplierKey === supplierKey;
                           const isSaving = savingSupplierKey === supplierKey;
+                          const isResending = resendingSupplierKey === supplierKey;
 
                           return (
                             <div key={supplierKey} className="bg-blue-50 rounded-lg border border-blue-100">
@@ -805,10 +851,14 @@ export default function JobDetailPage() {
                                       Requested {q.requestedDate ? new Date(q.requestedDate).toLocaleDateString("en-AU") : ""}
                                       {supplier?.email ? ` - ${supplier.email}` : " - no email saved"}
                                     </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Areas: {formatSupplierAreas(supplier)}
+                                      {q.lastFollowUp ? ` - chased ${new Date(q.lastFollowUp).toLocaleDateString("en-AU")}` : ""}
+                                    </p>
                                   </div>
                                   <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                                 </button>
-                                <div className="flex items-center gap-2 sm:flex-shrink-0">
+                                <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -822,8 +872,23 @@ export default function JobDetailPage() {
                                   </Button>
                                   <Button
                                     type="button"
+                                    variant="outline"
                                     size="sm"
-                                    disabled={isSaving}
+                                    disabled={!supplier || isSaving || isResending}
+                                    className="min-h-[44px] px-3 text-xs border-[#2D5E3A] text-[#2D5E3A] hover:bg-[#2D5E3A]/10"
+                                    onClick={() => handleResendFollowUp(supplierKey, trade.code, q.supplierId)}
+                                  >
+                                    {isResending ? (
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    ) : (
+                                      <Send className="w-3 h-3 mr-1" />
+                                    )}
+                                    Resend
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={isSaving || isResending}
                                     className="min-h-[44px] px-4 bg-[#2D5E3A] hover:bg-[#2D5E3A]/90"
                                     onClick={() => quickReceive(trade.code, q.supplierId, supplierName)}
                                   >
@@ -966,12 +1031,19 @@ export default function JobDetailPage() {
                                           <p className="font-medium">{supplier.abn || "Not set"}</p>
                                         </div>
                                         <div>
-                                          <p className="text-xs text-muted-foreground">Regions</p>
-                                          <p className="font-medium">{supplier.regions.join(", ") || "Not set"}</p>
+                                          <p className="text-xs text-muted-foreground">Areas Covered</p>
+                                          <p className="font-medium">{formatSupplierAreas(supplier)}</p>
                                         </div>
                                         <div>
                                           <p className="text-xs text-muted-foreground">Status</p>
                                           <p className="font-medium capitalize">{supplier.status} - {supplier.rating}/5</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground">Follow-Ups</p>
+                                          <p className="font-medium">
+                                            {q.followUpCount || 0}
+                                            {q.lastFollowUp ? ` - last ${new Date(q.lastFollowUp).toLocaleDateString("en-AU")}` : ""}
+                                          </p>
                                         </div>
                                       </div>
                                       {supplier.notes && (
