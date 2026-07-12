@@ -10,7 +10,7 @@
 
 ## Phase 3: Automation ✅ COMPLETE
 - Tasks 18-20: All proven and committed
-- Bulk email (grouped by supplier), Claude Vision OCR, notifications, cron follow-ups, quote expiry
+- Bulk email (grouped by supplier), Gemini 2.5 Pro OCR, notifications, cron follow-ups, quote expiry
 
 ## Phase 4: Intelligence ✅ COMPLETE
 - Tasks 21-23: All proven and committed

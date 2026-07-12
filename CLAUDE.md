@@ -15,7 +15,7 @@ After ANY code change, always deploy to Vercel. Never assume localhost is suffic
 ## Tech Stack
 - Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - Microsoft MSAL (OneDrive + email via Graph API)
-- Claude Vision API (OCR quote extraction)
+- Gemini 2.5 Pro API (OCR quote extraction)
 - Google Places API (supplier scraping)
 - Brand colour: #2D5E3A (Renify green)
 
@@ -126,7 +126,7 @@ Build in this order:
 
 ### Phase 3 — Automation
 1. Bulk email send via Graph API — select job, select trades, tick suppliers, "Send All". Groups cost centres that share a supplier into ONE email (not separate emails per cost centre). Auto-attaches plans/specs.
-2. Claude Vision OCR — upload quote PDF → extract: price ex GST, price inc GST, supplier name, quote date, expiry, scope items. Show for confirmation. Manual override on any field.
+2. Gemini 2.5 Pro OCR — upload quote PDF → extract: price ex GST, price inc GST, supplier name, quote date, expiry, scope items. Show for confirmation. Manual override on any field.
 3. Email notification on quote receipt — to assigned estimator: "Quote received — {trade} — {job_code}"
 4. Milestone notification — email to admin (configurable) when ALL trades for a job have at least one received quote: "{job_code} is fully quoted and ready for tender compilation"
 5. Quote expiry tracking — flag in kanban + dashboard. Configurable 30/60/90 day warning.
@@ -303,7 +303,7 @@ The full 58-entry array is defined in the spec file `RENIFY_QUOTE_PLATFORM_V2_SP
 
 ## Security & Infrastructure Rules
 
-1. **OCR calls are server-side only.** Claude Vision API calls go through `/api/ocr`. The `ANTHROPIC_API_KEY` must NEVER appear in client-side code. Frontend uploads PDF to the API route, API route calls Claude, returns extracted data.
+1. **OCR calls are server-side only.** Gemini OCR calls go through `/api/ocr`. The `GEMINI_API_KEY` must NEVER appear in client-side code. Frontend uploads PDF to the API route, API route calls Gemini, returns extracted data.
 
 2. **Auto follow-ups use Vercel Cron Jobs.** Create `/api/cron/follow-ups` with a `CRON_SECRET` env var for auth. Configure in `vercel.json` to run daily at 8am UTC. The cron checks all active jobs for overdue quote requests and sends follow-ups via Graph API.
 

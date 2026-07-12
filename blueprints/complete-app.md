@@ -55,6 +55,6 @@ Build the missing features in priority order — quote intake first (it's the co
 **Proof:** npm run build passes, npx vercel --prod succeeds, curl -I returns 200
 
 ## Risk Flags
-- Quote intake OCR depends on ANTHROPIC_API_KEY being set in env
+- Quote intake OCR depends on GEMINI_API_KEY being set in env
 - Cron follow-up needs a service account token strategy
 - Template editor needs to handle the case where no templates exist yet (seed defaults)

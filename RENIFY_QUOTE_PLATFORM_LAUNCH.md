@@ -35,7 +35,8 @@ MICROSOFT_CLIENT_SECRET=paste_secret_here
 MICROSOFT_TENANT_ID=common
 NEXTAUTH_SECRET=renify-quote-2026-random-secret
 NEXTAUTH_URL=http://localhost:3000
-ANTHROPIC_API_KEY=paste_your_key
+GEMINI_API_KEY=paste_your_key
+GEMINI_QUOTE_OCR_MODEL=gemini-2.5-pro
 GOOGLE_PLACES_API_KEY=paste_if_you_have_one
 ```
 

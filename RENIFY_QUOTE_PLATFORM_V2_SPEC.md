@@ -110,7 +110,7 @@ Spaces → underscores, all lowercase. Version auto-increments when same supplie
 
 **Quote versioning:** If same supplier + same trade already has a quote, new upload auto-increments version. Previous versions preserved. Quote card shows version history.
 
-**OCR auto-extract (Phase 3):** Upload PDF → Claude Vision reads it → extracts: price ex GST, price inc GST, supplier name, quote date, expiry, scope items. Shows extracted data for confirmation. Manual override on any field.
+**OCR auto-extract (Phase 3):** Upload PDF → Gemini 2.5 Pro reads it → extracts: price ex GST, price inc GST, supplier name, quote date, expiry, scope items. Shows extracted data for confirmation. Manual override on any field.
 
 **Email notification:** On quote receipt → email to assigned estimator: "Quote received — {trade} — {job_code}" with supplier name, price, OneDrive link.
 
@@ -152,7 +152,7 @@ Spaces → underscores, all lowercase. Version auto-increments when same supplie
 | App Data | JSON files in OneDrive | No external DB needed |
 | Offline Cache | IndexedDB (Phase 5) | Local cache, sync on reconnect |
 | Sync Strategy | Last-write-wins + conflict log | Simple, practical for construction teams |
-| OCR | Claude Vision API | Read quote PDFs, extract prices |
+| OCR | Gemini 2.5 Pro API | Read quote PDFs, extract prices |
 | Supplier Scraping | Google Places API | Find local trades |
 | Email | Microsoft Graph API (all sends) | From estimator's own account |
 | Notifications | Microsoft Graph API (email) | Quote receipt + milestone alerts |
@@ -258,7 +258,7 @@ export type TradeCode = typeof TRADES[number]["code"];
 ## 6. Security & Infrastructure Notes
 
 ### OCR API calls — server-side only
-Claude Vision API calls for quote PDF extraction MUST go through a Next.js API route (`/api/ocr`). The Anthropic API key must NEVER be exposed client-side. The frontend uploads the PDF to the API route, which forwards it to Claude Vision and returns the extracted data.
+Gemini OCR calls for quote PDF extraction MUST go through a Next.js API route (`/api/ocr`). The Gemini API key must NEVER be exposed client-side. The frontend uploads the PDF to the API route, which forwards it to Gemini and returns the extracted data.
 
 ### Auto follow-up scheduler
 Auto follow-ups at 7 and 14 days require a scheduler. Vercel is serverless — no persistent process. Use **Vercel Cron Jobs** (supported on free tier):
