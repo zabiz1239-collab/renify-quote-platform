@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/repository-moderniser/moderniser.schema.json",
+  "title": "Repository Moderniser Configuration",
+  "type": "object",
+  "required": ["kit", "project", "modernisation", "execution", "safety", "quality_gates", "memory", "agent_instructions", "cleanup"],
+  "properties": {
+    "kit": {
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": {"type": "string"},
+        "installed_for": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "project": {"type": "object", "additionalProperties": true},
+    "modernisation": {
+      "type": "object",
+      "required": ["level", "preserve_observable_behaviour", "target_structure", "create_permanent_ai_layer"],
+      "properties": {
+        "level": {"enum": ["conservative", "standard", "deep"]},
+        "preserve_observable_behaviour": {"type": "boolean"},
+        "target_structure": {"type": "string"},
+        "create_permanent_ai_layer": {"type": "boolean"},
+        "allow_code_moves": {"enum": [false, "evidence-based", "approved"]},
+        "allow_dependency_changes": {"enum": [false, "minimal-only", "approved"]},
+        "allow_runtime_or_framework_upgrade": {"type": "boolean"},
+        "allow_database_schema_changes": {"type": "boolean"},
+        "allow_public_api_changes": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "execution": {
+      "type": "object",
+      "required": ["continue_until_done", "plan_before_applying", "push_policy"],
+      "properties": {
+        "continue_until_done": {"type": "boolean"},
+        "plan_before_applying": {"type": "boolean"},
+        "push_policy": {"enum": ["never", "explicit-request-only"]}
+      },
+      "additionalProperties": true
+    },
+    "safety": {
+      "type": "object",
+      "required": ["never_read_secret_values", "never_modify_secret_files", "force_push", "write_to_external_services"],
+      "properties": {
+        "require_clean_worktree_before_apply": {"type": "boolean"},
+        "never_read_secret_values": {"const": true},
+        "never_modify_secret_files": {"type": "boolean"},
+        "force_push": {"const": false},
+        "write_to_external_services": {"const": false},
+        "destructive_database_operations": {"const": false},
+        "protected_paths": {"type": "array", "items": {"type": "string"}},
+        "inspection_excludes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "quality_gates": {"type": "object", "additionalProperties": true},
+    "memory": {
+      "type": "object",
+      "required": ["permanent_root", "long_term_file", "short_term_file"],
+      "properties": {
+        "permanent_root": {"type": "string"},
+        "long_term_file": {"type": "string"},
+        "short_term_file": {"type": "string"},
+        "short_term_max_lines": {"type": "integer", "minimum": 20, "maximum": 500}
+      },
+      "additionalProperties": true
+    },
+    "agent_instructions": {"type": "object", "additionalProperties": true},
+    "repository_hygiene": {"type": "object", "additionalProperties": true},
+    "cleanup": {"type": "object", "additionalProperties": true}
+  },
+  "additionalProperties": true
+}

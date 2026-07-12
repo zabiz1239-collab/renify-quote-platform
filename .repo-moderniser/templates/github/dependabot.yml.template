@@ -1,0 +1,21 @@
+# Generate entries only for ecosystems and directories actually detected.
+# Replace every placeholder or do not install this file.
+version: 2
+updates:
+  - package-ecosystem: "{{ECOSYSTEM}}"
+    directory: "{{MANIFEST_DIRECTORY}}"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      routine-updates:
+        patterns: ["*"]
+
+  # Include this entry only when .github/workflows contains GitHub Actions.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]

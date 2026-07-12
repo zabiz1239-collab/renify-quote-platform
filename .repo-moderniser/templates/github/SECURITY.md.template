@@ -1,0 +1,11 @@
+# Security policy
+
+## Supported versions
+
+{{DESCRIBE_SUPPORTED_RELEASES_OR_STATE_CURRENT_POLICY}}
+
+## Reporting a vulnerability
+
+{{INSERT_A_CONFIRMED_PRIVATE_REPORTING_CHANNEL_OR_GITHUB_PRIVATE_VULNERABILITY_REPORTING_INSTRUCTIONS}}
+
+Do not include credentials, exploit details, personal data, or production records in a public issue. Do not install this template with unresolved placeholders or invented contact details.

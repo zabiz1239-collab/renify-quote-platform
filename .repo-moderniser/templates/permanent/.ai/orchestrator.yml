@@ -1,0 +1,59 @@
+schema_version: "1.0"
+name: "{{PROJECT_NAME}} project orchestrator"
+mode: "repository-local"
+
+principles:
+  preserve_observable_behaviour: true
+  plan_risky_or_multifile_changes: true
+  continue_through_non_blocked_steps: true
+  serialize_overlapping_code_changes: true
+  evidence_before_completion: true
+  never_expose_secrets: true
+  never_push_or_deploy_without_explicit_request: true
+
+roles:
+  planner:
+    responsibility: "Understand scope, constraints, affected boundaries, and validation."
+  implementer:
+    responsibility: "Make the smallest coherent code and configuration changes."
+  verifier:
+    responsibility: "Run focused and full relevant checks and compare expected behaviour."
+  reviewer:
+    responsibility: "Review the complete diff for regressions, security, and maintainability."
+  memory_custodian:
+    responsibility: "Keep project context, decisions, known issues, and hand-off state current."
+
+workflow:
+  - phase: inspect
+    required_outputs: ["scope", "affected_paths", "constraints", "validation_plan"]
+  - phase: plan
+    when: "multi-file, risky, ambiguous, or architecture-affecting"
+    required_outputs: ["ordered_steps", "risk_and_rollback"]
+  - phase: implement
+    strategy: "small coherent slices"
+  - phase: verify
+    commands:
+      lint: "{{LINT_COMMAND_OR_EMPTY}}"
+      typecheck: "{{TYPECHECK_COMMAND_OR_EMPTY}}"
+      test: "{{TEST_COMMAND}}"
+      build: "{{BUILD_COMMAND}}"
+      smoke: "{{SMOKE_COMMAND_OR_PROCEDURE}}"
+  - phase: document_and_remember
+    update: ["canonical docs", ".ai/memory/LONG_TERM.md", ".ai/memory/SHORT_TERM.md"]
+  - phase: review
+    checks: ["full diff", "paths and imports", "dependencies", "generated files", "secret safety", "done criteria"]
+
+pause_conditions:
+  - "uncommitted user work could be overwritten"
+  - "business or public API behaviour is materially ambiguous"
+  - "destructive data or database operation is required"
+  - "credentials, production access, billing, signing, or external approval is required"
+  - "validation is insufficient for an irreversible or high-risk change"
+
+definition_of_done:
+  - "requested outcome is implemented"
+  - "relevant focused and full quality gates pass, or limitations are explicit"
+  - "no unexplained regression exists"
+  - "documentation and memory reflect current reality"
+  - "full diff has been reviewed"
+  - "remaining risks and follow-up tasks are stated"

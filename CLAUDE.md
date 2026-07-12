@@ -329,3 +329,11 @@ The full 58-entry array is defined in the spec file `RENIFY_QUOTE_PLATFORM_V2_SP
 - Milestone notification when all trades for a job are quoted
 - Never skip the CHECK step in the build workflow
 - If CHECK fails 3+ times on the same issue, rethink the approach entirely
+
+@AGENTS.md
+
+<!-- repository-moderniser:begin -->
+## Temporary repository modernisation
+
+The canonical migration instructions are in `AGENTS.md`. Read the moderniser files it references and use the repository skill `/repository-moderniser` when helpful.
+<!-- repository-moderniser:end -->

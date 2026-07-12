@@ -1,0 +1,130 @@
+# Repository Moderniser Kit configuration
+# Version: 1.0.0
+# Edit values cautiously. The agent must record any runtime override in MIGRATION_LOG.md.
+
+kit:
+  version: "1.0.0"
+  installed_for: "auto-detect"
+
+project:
+  name: "auto-detect"
+  repository_kind: "auto-detect"   # single-app | monorepo | library | service | mobile | infrastructure | mixed
+  lifecycle: "auto-detect"         # prototype | active | production | legacy | archived
+  deployment_target: "auto-detect"
+
+modernisation:
+  level: "standard"                # conservative | standard | deep
+  preserve_observable_behaviour: true
+  target_structure: "stack-native"
+  create_permanent_ai_layer: true
+  create_architecture_docs: true
+  create_decision_records: true
+  create_operations_docs: true
+  create_testing_docs: true
+  allow_code_moves: "evidence-based"       # false | evidence-based | approved
+  allow_file_renames: "evidence-based"
+  allow_dependency_changes: "minimal-only" # false | minimal-only | approved
+  allow_runtime_or_framework_upgrade: false
+  allow_database_schema_changes: false
+  allow_public_api_changes: false
+  allow_environment_variable_renames: false
+  allow_ci_changes: "safe-when-verified"   # false | propose-only | safe-when-verified
+  remove_dead_files: "quarantine-and-verify"
+  normalize_formatting_scope: "touched-files-only"
+
+execution:
+  continue_until_done: true
+  plan_before_applying: true
+  parallel_read_only_analysis: true
+  serialize_code_changes: true
+  update_state_after_each_phase: true
+  commit_policy: "do-not-commit-unless-requested"
+  push_policy: "never"
+  open_pull_request: false
+
+safety:
+  require_clean_worktree_before_apply: true
+  dirty_worktree_policy: "audit-only-and-stop-before-edits"
+  require_baseline_before_structural_moves: true
+  never_read_secret_values: true
+  never_modify_secret_files: true
+  delete_policy: "quarantine-then-remove"
+  quarantine_directory: ".repo-moderniser/quarantine"
+  force_push: false
+  write_to_external_services: false
+  destructive_database_operations: false
+  protected_paths:
+    - ".git/**"
+    - ".env"
+    - ".env.*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/*.p12"
+    - "**/*.pfx"
+    - "**/secrets.*"
+    - "**/credentials.*"
+  inspection_excludes:
+    - ".git/**"
+    - "node_modules/**"
+    - "vendor/**"
+    - ".venv/**"
+    - "venv/**"
+    - "dist/**"
+    - "build/**"
+    - ".next/**"
+    - ".nuxt/**"
+    - "coverage/**"
+    - "target/**"
+    - ".turbo/**"
+    - ".cache/**"
+
+quality_gates:
+  detect_commands_from_repository: true
+  run_existing_lint: true
+  run_existing_typecheck: true
+  run_existing_tests: true
+  run_existing_build: true
+  run_non_destructive_smoke_test: true
+  add_missing_tests: "critical-paths-and-moved-code"
+  require_structural_validator: true
+  compare_with_baseline: true
+  allow_pre_existing_failures: true
+  pre_existing_failures_must_be_documented: true
+
+memory:
+  permanent_root: ".ai"
+  long_term_file: ".ai/memory/LONG_TERM.md"
+  short_term_file: ".ai/memory/SHORT_TERM.md"
+  decisions_index: ".ai/memory/DECISIONS.md"
+  known_issues_file: ".ai/memory/KNOWN_ISSUES.md"
+  backlog_file: ".ai/tasks/BACKLOG.md"
+  short_term_max_lines: 120
+  update_after_each_material_change: true
+  only_store_verified_facts_as_facts: true
+  label_assumptions_and_uncertainty: true
+
+agent_instructions:
+  canonical_file: "AGENTS.md"
+  claude_bridge_file: "CLAUDE.md"
+  target_agents_max_bytes: 24000
+  target_claude_max_lines: 80
+  use_nested_instructions_only_when_scope_differs: true
+
+repository_hygiene:
+  update_readme: true
+  add_or_update_contributing: "when-collaborative"
+  add_or_update_security_policy: "when-public-or-shared"
+  add_pull_request_template: "when-github-hosted"
+  add_issue_forms: "when-public-or-team-managed"
+  add_codeowners: "only-with-known-valid-owners"
+  add_dependabot: "when-supported-ecosystems-detected"
+  add_dependency_review: "when-github-actions-and-policy-allow"
+  pin_new_actions: "immutable-commit-with-version-comment"
+  never_replace_working_ci_without_reason: true
+
+cleanup:
+  automatic: false
+  archive_reports_to: "docs/migrations"
+  retain_permanent_ai_layer: true
+  retain_completion_report: true
+  remove_temporary_skills: true

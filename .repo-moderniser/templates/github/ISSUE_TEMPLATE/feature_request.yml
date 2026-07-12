@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose an outcome or capability
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Describe the user or operational need before proposing implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should become possible, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and compatibility
+      description: Existing APIs, data, platforms, security, accessibility, or deployment requirements.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: How should the result be verified?

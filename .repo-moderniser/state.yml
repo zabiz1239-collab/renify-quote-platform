@@ -1,0 +1,25 @@
+kit_version: "1.0.0"
+status: "not_started"   # not_started | in_progress | blocked | completed | completed_with_exceptions
+current_phase: "preflight"
+last_updated_utc: null
+
+phases:
+  preflight: pending
+  inventory: pending
+  baseline: pending
+  plan: pending
+  permanent_agent_layer: pending
+  structure_and_cleanup: pending
+  quality_and_github_hygiene: pending
+  full_validation: pending
+  final_report: pending
+  archive_and_cleanup: pending
+
+active_slice: null
+blockers: []
+assumptions: []
+validation_summary:
+  baseline_recorded: false
+  structural_validator_passed: false
+  regression_status: unknown
+  completion_report_written: false

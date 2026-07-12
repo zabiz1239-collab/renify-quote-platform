@@ -1,0 +1,57 @@
+schema_version: "1.0"
+project:
+  name: "{{PROJECT_NAME}}"
+  purpose: "{{ONE_SENTENCE_PURPOSE}}"
+  repository_kind: "{{REPOSITORY_KIND}}"
+  lifecycle: "{{LIFECYCLE}}"
+  visibility: "{{VISIBILITY_OR_UNKNOWN}}"
+
+stack:
+  languages: ["{{LANGUAGE}}"]
+  runtimes: ["{{RUNTIME_AND_VERSION}}"]
+  frameworks: ["{{FRAMEWORK}}"]
+  package_managers: ["{{PACKAGE_MANAGER}}"]
+  workspace_tool: "{{WORKSPACE_TOOL_OR_NONE}}"
+
+paths:
+  primary_source: "{{PRIMARY_SOURCE_PATH}}"
+  tests: "{{TEST_PATH}}"
+  documentation: "docs"
+  deployment: "{{DEPLOYMENT_PATH_OR_NONE}}"
+  generated: ["{{GENERATED_PATH_OR_NONE}}"]
+
+commands:
+  working_directory: "{{DEFAULT_WORKING_DIRECTORY}}"
+  install: "{{INSTALL_COMMAND}}"
+  develop: "{{DEV_COMMAND}}"
+  lint: "{{LINT_COMMAND_OR_EMPTY}}"
+  typecheck: "{{TYPECHECK_COMMAND_OR_EMPTY}}"
+  test: "{{TEST_COMMAND}}"
+  build: "{{BUILD_COMMAND}}"
+  smoke: "{{SMOKE_COMMAND_OR_PROCEDURE}}"
+
+entry_points:
+  - name: "{{ENTRY_POINT_NAME}}"
+    path: "{{ENTRY_POINT_PATH}}"
+    purpose: "{{ENTRY_POINT_PURPOSE}}"
+
+contracts:
+  public_apis: ["{{PUBLIC_API_OR_NONE}}"]
+  data_formats: ["{{DATA_FORMAT_OR_NONE}}"]
+  environment_variables_documented_at: "{{ENV_DOC_PATH_OR_NONE}}"
+  deployment_contract: "{{DEPLOYMENT_CONTRACT}}"
+
+protected_paths:
+  - "{{PROTECTED_PATH_OR_PATTERN}}"
+
+sources_of_truth:
+  architecture: "docs/architecture/README.md"
+  decisions: "docs/decisions/"
+  operations: "docs/operations/README.md"
+  testing: "docs/testing/README.md"
+  agent_instructions: "AGENTS.md"
+
+last_verified:
+  date: "{{YYYY-MM-DD}}"
+  by: "repository-modernisation"
+  evidence: "docs/migrations/{{MIGRATION_REPORT_PATH}}"

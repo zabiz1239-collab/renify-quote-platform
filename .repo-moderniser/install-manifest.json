@@ -1,0 +1,362 @@
+{
+  "kit_version": "1.0.0",
+  "installed_at_utc": "2026-07-12T09:05:19.057778+00:00",
+  "target": "C:\\Users\\Zabi\\Projects\\renify-quote-platform",
+  "git_root": "C:\\Users\\Zabi\\Projects\\renify-quote-platform",
+  "dry_run": false,
+  "payload": [
+    {
+      "path": ".agents\\skills\\repository-moderniser\\SKILL.md",
+      "status": "created",
+      "sha256": "a5536574761d5d9de677fbf8a2d5c683c34f25efd553c498558540e4e6d7f039",
+      "backup": null
+    },
+    {
+      "path": ".claude\\skills\\repository-moderniser\\SKILL.md",
+      "status": "created",
+      "sha256": "a5536574761d5d9de677fbf8a2d5c683c34f25efd553c498558540e4e6d7f039",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\moderniser.yml",
+      "status": "created",
+      "sha256": "0b52af0d998e612d45fae38dbdb9aaa73f6b1585a16207035e00c1fec9665e4b",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\ORCHESTRATOR.md",
+      "status": "created",
+      "sha256": "1f19806286c9efb8994587ad27688abcd5cdf981a4e1eb8858af4b0be7f10b43",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\output\\.gitkeep",
+      "status": "created",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\00-preflight.md",
+      "status": "created",
+      "sha256": "301217c6e2cc4e12c2bd4392c535d74bb1ac8aa6c1dfd7c251740665ba8801da",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\01-inventory.md",
+      "status": "created",
+      "sha256": "ac0bb1e38e857d013cf2d5ab706c52a22225c97c3bf43b09ff8a7f2ae29ab3b7",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\02-baseline.md",
+      "status": "created",
+      "sha256": "176835e20dcdbd233c7296d10f27582d0a04359a5dbf5dd7cd894c6f0b7551e9",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\03-plan.md",
+      "status": "created",
+      "sha256": "112f6e50493cdfd86c0dfb1b7a2e9373bef1155c055f53cdb73a384fc5559f5d",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\04-permanent-agent-layer.md",
+      "status": "created",
+      "sha256": "96554c97503ff5d82b1c4d972e88c7d35aeb6288d84c5c14464eea1b76243464",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\05-structure-and-cleanup.md",
+      "status": "created",
+      "sha256": "1b490a022c187aa62632c3a652f8fb948165067fe098f9fe741aa69b38211db9",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\06-quality-and-github.md",
+      "status": "created",
+      "sha256": "791f5c20b3eb98aec0ad53cd2a83a25ccf0f4ebdada0172fb0f1301e9292d13a",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\07-full-validation.md",
+      "status": "created",
+      "sha256": "8519a7aa2225dfe9797e3d5dd9611a2c69097c946415a7f6100f20a592efbbf9",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\08-final-report.md",
+      "status": "created",
+      "sha256": "3bdd1f1abd063e19025fae7eb1b591b79d5067171631602ee81f55296f9e2f2f",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\playbooks\\09-archive-and-cleanup.md",
+      "status": "created",
+      "sha256": "a10591eaa4a7c51834b17b14e50c480dffffe739a152600f782c27e8168507ef",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\schema\\moderniser.schema.json",
+      "status": "created",
+      "sha256": "449418c93c8aa2f95b114f8098be20339294a52bf740f1e8a341e60b181aa989",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\scripts\\archive_and_clean.py",
+      "status": "created",
+      "sha256": "1d3ae2531117cc8d66fab9e42926fb99dd87e5d83564addd45e659f51b151e4a",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\scripts\\inspect_repo.py",
+      "status": "created",
+      "sha256": "ddbfc9801bd403587adc2f26c11ef5662fa176b2a98d7e0236dc3c8890b38d8f",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\scripts\\validate_modernisation.py",
+      "status": "created",
+      "sha256": "40e683ec3e5d26d5795ec2052e44ff308b9bddfc018d8813ad030d57a61f2a47",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\agent-instructions.md",
+      "status": "created",
+      "sha256": "a4be61374146d0639ca0ec2b802f61c31faf62d08ee14452dc5e109bb7edf6cc",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\documentation.md",
+      "status": "created",
+      "sha256": "eb5c0db4873dabfae0283ef4dd206dfdf3fe93564066a9492b827f1963695543",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\github.md",
+      "status": "created",
+      "sha256": "27612a012a8cae838cdbbf9d586f415a46c87108b1cbe2e9f39fe6d715b6180c",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\memory.md",
+      "status": "created",
+      "sha256": "e82641d1ee39b669d4e6c52614abff6380a5f45b18823932ecc9cc9ddc577797",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\repository-structure.md",
+      "status": "created",
+      "sha256": "e6c2bc41494ed4018f177322745984f91bbdb475991f3b92c3cb7afad10d1dc4",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\security.md",
+      "status": "created",
+      "sha256": "22fa87f5ef956e14ae7257476d23d7cfc73beb7952372e172291fdb873b2c8b1",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\standards\\testing.md",
+      "status": "created",
+      "sha256": "0843f666ad1fafb8579b8b82e12a60c88b3b157859eef7decf7c41e8562bba3e",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\START_HERE.md",
+      "status": "created",
+      "sha256": "96cf4da7f1c1a24d85b2129a33b2a8e2a3f8b2f7790b0be6b62be0f1ef0baf50",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\state.yml",
+      "status": "created",
+      "sha256": "790b52adb641982cc0c54324164c507fead2abf67597113c06dcf4a0ae724716",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\github\\dependabot.yml.template",
+      "status": "created",
+      "sha256": "26bd23639357447bf8b17bdb77b71ce862ab08a30b8c8e2fbdb38ec2a4b1905d",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\github\\ISSUE_TEMPLATE\\bug_report.yml",
+      "status": "created",
+      "sha256": "81cb88a641effcbd970f55dcc10f1baabd19ea4edf772b12d60cb9a2c1b9860f",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\github\\ISSUE_TEMPLATE\\feature_request.yml",
+      "status": "created",
+      "sha256": "39f80eaaf3d596a110a1ecf174054868cf58bbe22e24a0c4f58a2e2d764c760f",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\github\\pull_request_template.md",
+      "status": "created",
+      "sha256": "784a282a6a89ac9ec0f89d3bbd69de2485c35003786f29e74169a1541be57fb0",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\github\\SECURITY.md.template",
+      "status": "created",
+      "sha256": "688d3730172e1c1999641c528f83cf32215595bb8ca3ab0eaef32af71b947677",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\memory\\DECISIONS.md",
+      "status": "created",
+      "sha256": "b9a27f02e3b78e10c69b544927136fc3081a4d409fac2129b96f645b33cfe42d",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\memory\\KNOWN_ISSUES.md",
+      "status": "created",
+      "sha256": "531ce24dffcb0eceac75f738929a598acee9142d4d0fd2c3273c33f65df6ea39",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\memory\\LONG_TERM.md",
+      "status": "created",
+      "sha256": "bfde461b161af3e0963a9672ad0f7dc129c617f7f166fa1280dcd4288a6e92aa",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\memory\\SHORT_TERM.md",
+      "status": "created",
+      "sha256": "408780527e4abe1f50cc7db3a828e632e26463a27a8df64f7b4ab0c78447c536",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\orchestrator.yml",
+      "status": "created",
+      "sha256": "3d0b7c4a8ff1ee514b9888dd3230f70817acff2f0a2c7bba796453d5b98c691a",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\project.yml",
+      "status": "created",
+      "sha256": "19629d72b48fb08b26180c09d96c90c065c55f23abc0967285aa7a0d50447d77",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\README.md",
+      "status": "created",
+      "sha256": "04db1befb68151582dcf9c2447cb1b391aef874e9f16efea5a6eecb77c70fb37",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\.ai\\tasks\\BACKLOG.md",
+      "status": "created",
+      "sha256": "0a8bd9ab7f36dc7f20a59e9092b932e8fa66abc3ed3e61a0a1b80c0f1a555f6b",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\AGENTS.md.template",
+      "status": "created",
+      "sha256": "e604bde2b695011116102ad6eed7b3871a12072bb38ef15742a2b9cacbbcfed7",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\CLAUDE.md.template",
+      "status": "created",
+      "sha256": "880becaccaadc76614b25620bede5c3663699f1392de90606d459705bf80ee77",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\docs\\architecture\\README.md",
+      "status": "created",
+      "sha256": "84f9a0712aedd053da7f37e2c7a18b44edc90489cebd37070f8cad83445f06cb",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\docs\\decisions\\0000-template.md",
+      "status": "created",
+      "sha256": "6dc6f7a5e178c8fe891b7b7a0618e3383bdd8ca224003466ed6139c161c4969a",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\docs\\operations\\README.md",
+      "status": "created",
+      "sha256": "69281098294435fb483cea78ef555db83058b44f83220cf1e8271c0d3ef598ad",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\permanent\\docs\\testing\\README.md",
+      "status": "created",
+      "sha256": "d2fe9102c506c977486bd5c29b332fa8be99a76b871e6ed97f9857cfe16a4634",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\AUDIT_REPORT.md",
+      "status": "created",
+      "sha256": "f8c4f579767858b490550c1868c4ae4ae1d49fcb2bc28752aee2f6a1e660574f",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\BASELINE.md",
+      "status": "created",
+      "sha256": "328641a0b0815a93078f41ec2d92c032b65a70e7fd215f7815d432192190856b",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\COMPLETION_REPORT.md",
+      "status": "created",
+      "sha256": "e01ea4718d1e6b3f5850c2cc8d35ba3849fbbae84ee538b131cc3515c999163d",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\INVENTORY.md",
+      "status": "created",
+      "sha256": "221121017dc02fa5e46156779b93459fe5ee72614e1ac2f0cb62f6573339296b",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\MIGRATION_LOG.md",
+      "status": "created",
+      "sha256": "8a0ff17900a788ecbacbb62d82fdd940a95d0e7f875891df3c2c2a6bb3375da3",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\MIGRATION_PLAN.md",
+      "status": "created",
+      "sha256": "c05f4028a61c1d8ae9407bf1b3bf241a0bef676931d80f20873c6298728afa8e",
+      "backup": null
+    },
+    {
+      "path": ".repo-moderniser\\templates\\reports\\VALIDATION_REPORT.md",
+      "status": "created",
+      "sha256": "898bf70b70722c2c611cdabcf262c0f5d33082f2aa4dc7d619f3618726c3f293",
+      "backup": null
+    },
+    {
+      "path": "MODERNISE_WITH_CLAUDE.md",
+      "status": "created",
+      "sha256": "5ced2133327c5b2bd7d05f0b1c0cffec4ae1a1ec473db0039b09c838f5d5e80a",
+      "backup": null
+    },
+    {
+      "path": "MODERNISE_WITH_CODEX.md",
+      "status": "created",
+      "sha256": "475bda4b529fd46a894ead7c5a269292abf5e951a7e572fa60d644f1d76e24c0",
+      "backup": null
+    }
+  ],
+  "bridges": [
+    {
+      "path": "C:\\Users\\Zabi\\Projects\\renify-quote-platform\\AGENTS.md",
+      "existed": false,
+      "changed": true,
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "installed_sha256": "a6a9743e43a822fffc650bcdaa60739c52253eff0a3d6f24cfbc6d67d8d2d8d7"
+    },
+    {
+      "path": "C:\\Users\\Zabi\\Projects\\renify-quote-platform\\CLAUDE.md",
+      "existed": true,
+      "changed": true,
+      "original_sha256": "c2fec6e874e9a8c35fbf5aa0ea50715b97f8f1885f14702c900b5d5ec21dc1b5",
+      "installed_sha256": "7d768cab4812d65e1cb915d05ad6ceacc066b325e23402463e7e5f6acab3aaea"
+    }
+  ],
+  "previous_install_at_utc": null
+}

@@ -1,0 +1,53 @@
+# AGENTS.md
+
+## Project
+
+`{{PROJECT_NAME}}` — {{ONE_SENTENCE_PURPOSE}}.
+
+Critical contracts that must remain stable:
+
+- {{CRITICAL_CONTRACT_1}}
+
+## Repository map
+
+- `{{PRIMARY_SOURCE_PATH}}` — {{ROLE}}
+- `{{TEST_PATH}}` — {{ROLE}}
+- `.ai/` — project orchestrator, memory, and task hand-off
+- `docs/` — architecture, decisions, operations, and testing guidance
+
+Read `.ai/project.yml` and the relevant documentation before broad changes.
+
+## Supported commands
+
+Run from `{{DEFAULT_WORKING_DIRECTORY}}` using `{{PACKAGE_OR_TASK_RUNNER}}`:
+
+- Install: `{{INSTALL_COMMAND}}`
+- Develop/run: `{{DEV_COMMAND}}`
+- Lint: `{{LINT_COMMAND_OR_NOT_AVAILABLE}}`
+- Type-check: `{{TYPECHECK_COMMAND_OR_NOT_AVAILABLE}}`
+- Test: `{{TEST_COMMAND}}`
+- Build: `{{BUILD_COMMAND}}`
+- Smoke/verify: `{{SMOKE_COMMAND_OR_PROCEDURE}}`
+
+Do not invent a replacement command when one is unavailable; improve it deliberately and document the change.
+
+## Engineering rules
+
+- Follow `{{FRAMEWORK_OR_ECOSYSTEM}}` conventions and the boundaries documented in `docs/architecture/README.md`.
+- Preserve public APIs, data formats, routes, environment variable names, and deployment behaviour unless the task explicitly changes them.
+- Keep changes scoped; avoid unrelated dependency upgrades and repository-wide formatting.
+- Add or update tests for behaviour and boundaries affected by the change.
+- Never read, print, or commit secret values. Treat `{{SENSITIVE_PATH_SUMMARY}}` as protected.
+
+## Workflow
+
+1. Inspect relevant code, tests, docs, and current memory.
+2. Plan multi-file or risky changes before editing.
+3. Implement in coherent slices.
+4. Run focused checks after each slice and the full relevant gates before completion.
+5. Update canonical docs, `.ai/memory/LONG_TERM.md`, and `.ai/memory/SHORT_TERM.md` when facts or hand-off state change.
+6. Review the full diff for accidental behaviour, path, dependency, generated-file, and secret changes.
+
+## Definition of done
+
+Work is complete only when the requested behaviour is implemented, relevant tests and quality gates pass or limitations are documented, docs/memory are current, and the final diff has been reviewed. Never push or deploy unless the user explicitly requests it and the environment authorises it.
